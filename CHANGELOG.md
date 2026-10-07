@@ -1,5 +1,40 @@
 # CHANGELOG
 
+## 2026:10:07 14:54
+
+**Resumen:** Scaffolding inicial del microsistema `bff` (fase a de `bff.yaml`), contrato primero contra `pf-pkg-contracts@v0.1.0-tracer.3` y `pf-pkg-platform-go@v0.1.0`. Compila, prueba y pasa arch-test. Las brechas de contrato se reportan, no se inventan.
+
+**Cambios:**
+- `go.mod` (`module github.com/AI27-Tech/pf-svc-bff`, `go 1.27`) con versiones exactas de ambos paquetes; sin `replace` ni `go.work` versionado.
+- Superficie del módulo (`bff.go`): `New`/`Routes`/`Workers`. Sin `Consultas()` (bff no tiene aristas entrantes). `Pools` es un struct vacío (bff no es dueño de datos). `Workers()` vacío hasta que la raíz inyecte el bus.
+- Puertos de salida de fase (a) en `internal/agregacion/ports.go` (`IdentidadPort`, `OperacionPort`), re-exportados como alias en `ports.go`. Tipados solo con tipos generados del contrato.
+- Handlers de las seis operaciones (`iniciarSesion`, `cerrarSesion`, `refrescarSesion`, `crearViaje`, `listarViajes`, `seguirViaje`) en `internal/agregacion`.
+- Composición pura de hitos V1 (`internal/tracking`, E2-T2/E2-T3, ADR 27): traducción estado técnico → hito, colapso multi-parada, con pruebas por estado.
+- Autorización y revocación (`internal/autorizacion`, ADR 26): envoltura de `auth.Middleware`, proyección de tombstones idempotente que falla cerrado, con pruebas de rechazo de sesión revocada.
+- Adaptación de errores aguas abajo a la taxonomía de la plataforma (`internal/errores`): degradado/roto, nunca no encontrado.
+- Adaptadores HTTP (`adapters/http/identidad.go`, `operacion.go`) sobre los clientes generados, con presupuesto por dependencia.
+- `cmd/api/main.go`: arranque standalone (I5) con adaptadores HTTP, verificador local de JWT, sin BD ni migraciones.
+- CI (`.github/workflows/ci.yml`): build/vet/test, build de `cmd/api`, arch-test fijado a `@v0.1.1` (honra `shared_packages` y `roles`).
+- `README.md` (español) y `.gitignore`.
+
+**Verificado:**
+- `gofmt -l .` limpio; `go vet ./...`, `go build ./...`, `go test ./...` pasan.
+- `GOFLAGS=-mod=readonly go build ./...` pasa (go.sum completo).
+- `go build ./cmd/api` compila el arranque standalone.
+- `arch-test@v0.1.1 .` → OK (aristas a `operacion` e `identidad` permitidas).
+
+**Brechas de contrato reportadas (no resueltas):** `stale` (contradicción E2-T2/ADR 20 vs `operacion.yaml`), incidencia curada (E2-T3, sin superficie en `ViajeDetalle`), `catalogo.actualizado` (consumidor contradictorio), `GET /api/v1/panel` (no existe en el contrato), forma de sesión de los frontends (E8-T3). Ver `README.md`.
+
+**Archivos modificados:**
+- `go.mod`, `go.sum`, `bff.go`, `ports.go`, `bff_test.go`, `.gitignore`
+- `cmd/api/main.go`
+- `adapters/http/identidad.go`, `adapters/http/operacion.go`
+- `internal/agregacion/ports.go`, `internal/agregacion/handlers.go`
+- `internal/tracking/tracking.go`, `internal/tracking/tracking_test.go`
+- `internal/autorizacion/autorizacion.go`, `internal/autorizacion/autorizacion_test.go`
+- `internal/errores/errores.go`
+- `.github/workflows/ci.yml`, `README.md`
+
 ## 2026:10:06 12:55
 
 **Resumen:** Se agregó la plantilla de Pull Request del backend, adaptada al stack Go de AI27.
