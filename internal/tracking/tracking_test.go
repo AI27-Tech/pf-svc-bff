@@ -82,21 +82,47 @@ func TestComponerNoFiltraTokenTecnico(t *testing.T) {
 	}
 }
 
-// TestComponerStaleReenviado documenta y verifica la decision del scaffold ante
-// la contradiccion de fuentes (ver README, brecha "stale"): el ETA y su marca
-// obsoleto se reenvian tal cual del contrato de operacion, sin recalcular.
-func TestComponerStaleReenviado(t *testing.T) {
-	valor := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
-	eta := &opclient.Eta{Obsoleto: true, Valor: valor}
-	seg := Componer(viajeDetalle(opclient.EstadoViaje(estados.EstadoEnTransito), eta))
-	if seg.Eta == nil {
-		t.Fatal("se esperaba ETA en la vista de seguimiento")
+// TestComponerStaleCalculado verifica la regla de E2-T2: bff calcula stale
+// comparando la hora actual contra el ETA guardado (operacion no expone stale,
+// tracer.4/ADR 20). stale es true si el ETA ya pasó, false si está en el futuro.
+// bff nunca recalcula el ETA: solo marca si venció.
+func TestComponerStaleCalculado(t *testing.T) {
+	// Reloj fijo para la prueba; se restaura al terminar.
+	fijo := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	original := ahora
+	ahora = func() time.Time { return fijo }
+	defer func() { ahora = original }()
+
+	casos := []struct {
+		nombre   string
+		eta      time.Time
+		obsoleto bool
+	}{
+		{"ETA ya pasó → obsoleto", fijo.Add(-time.Hour), true},
+		{"ETA en el futuro → vigente", fijo.Add(time.Hour), false},
 	}
-	if !seg.Eta.Obsoleto {
-		t.Error("la marca obsoleto del contrato debe reenviarse (true)")
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			eta := c.eta
+			seg := Componer(viajeDetalle(opclient.EstadoViaje(estados.EstadoEnTransito), &eta))
+			if seg.Eta == nil {
+				t.Fatal("se esperaba ETA en la vista de seguimiento")
+			}
+			if seg.Eta.Obsoleto != c.obsoleto {
+				t.Errorf("obsoleto = %v, se esperaba %v", seg.Eta.Obsoleto, c.obsoleto)
+			}
+			if !seg.Eta.Valor.Equal(c.eta) {
+				t.Errorf("valor del ETA = %v, se esperaba %v (bff no recalcula)", seg.Eta.Valor, c.eta)
+			}
+		})
 	}
-	if !seg.Eta.Valor.Equal(valor) {
-		t.Errorf("valor del ETA = %v, se esperaba %v", seg.Eta.Valor, valor)
+}
+
+// TestComponerSinEta verifica que un viaje sin ETA capturado no produce bloque Eta.
+func TestComponerSinEta(t *testing.T) {
+	seg := Componer(viajeDetalle(opclient.EstadoViaje(estados.EstadoEnTransito), nil))
+	if seg.Eta != nil {
+		t.Error("sin eta_estimado, la vista no debe traer bloque Eta")
 	}
 }
 
@@ -118,14 +144,14 @@ func TestComponerIncidenciasVacias(t *testing.T) {
 }
 
 // viajeDetalle arma un ViajeDetalle minimo para las pruebas.
-func viajeDetalle(estado opclient.EstadoViaje, eta *opclient.Eta) opclient.ViajeDetalle {
+func viajeDetalle(estado opclient.EstadoViaje, eta *time.Time) opclient.ViajeDetalle {
 	return opclient.ViajeDetalle{
 		Viaje: opclient.Viaje{
-			Id:         uuid.New(),
-			Estado:     estado,
-			Origen:     "CDMX",
-			Destinos:   []opclient.Destino{{Nombre: "Monterrey"}},
-			EtaCliente: eta,
+			Id:          uuid.New(),
+			Estado:      estado,
+			Origen:      "CDMX",
+			Destinos:    []opclient.Destino{{Nombre: "Monterrey"}},
+			EtaEstimado: eta,
 		},
 		CondicionesActivas: []opclient.CondicionAbierta{},
 	}
