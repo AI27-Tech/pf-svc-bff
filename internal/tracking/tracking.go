@@ -15,10 +15,17 @@
 package tracking
 
 import (
+	"time"
+
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
 	estados "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/estados"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 )
+
+// ahora es la fuente de tiempo para el cálculo de stale. Variable de paquete
+// para que la prueba pueda sustituirla por un reloj fijo; en producción es la
+// hora real en UTC.
+var ahora = func() time.Time { return time.Now().UTC() }
 
 // hitosPorEstado mapea cada estado tecnico del enum canonico (ADR 19) a la
 // etiqueta de hito que ve el cliente (DEC-001). Los tres estados del bucle
@@ -81,20 +88,18 @@ func Componer(d opclient.ViajeDetalle) bffclient.ViajeSeguimiento {
 		Incidencias: []bffclient.IncidenciaCurada{},
 	}
 
-	if v.EtaCliente != nil {
+	if v.EtaEstimado != nil {
+		// stale = el ETA guardado ya pasó (E2-T2, criterios: "stale es true si la
+		// hora del ETA guardado ya pasó; false en otro caso"). Lo calcula bff;
+		// operacion no lo expone (tracer.4, ADR 20). bff NUNCA recalcula el ETA:
+		// solo compara la hora actual contra el valor fijo que capturó operacion.
+		obsoleto := ahora().After(*v.EtaEstimado)
 		seg.Eta = &struct {
 			Obsoleto bool                  `json:"obsoleto"`
 			Valor    bffclient.MarcaTiempo `json:"valor"`
 		}{
-			// CONTRADICCION DE FUENTES (reportada, no resuelta): E2-T2 y ADR 20 dicen
-			// que bff calcula stale comparando la hora actual contra el ETA guardado,
-			// y que operacion NO expone stale. Pero operacion.yaml SI lo trae calculado
-			// (Eta.Obsoleto). El scaffold reenvia el valor del contrato en lugar de
-			// recalcular, para no inventar una regla; la eleccion entre "bff calcula"
-			// y "operacion calcula" la decide Product, no este codigo (bff.md, 00
-			// regla 6). Ver README, brecha "stale".
-			Obsoleto: v.EtaCliente.Obsoleto,
-			Valor:    v.EtaCliente.Valor,
+			Obsoleto: obsoleto,
+			Valor:    *v.EtaEstimado,
 		}
 	}
 
