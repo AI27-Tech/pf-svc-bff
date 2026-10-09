@@ -100,7 +100,12 @@ func New(_ Pools, d Deps) (*Module, error) {
 		if err != nil {
 			return nil, fmt.Errorf("construir consumidor de revocacion: %w", err)
 		}
-		m.consumidor = cons
+		// Envuelve el consumidor con la reconstrucción por snapshot (ADR 26 §4):
+		// precarga las revocadas vigentes de identidad al arrancar y reporta
+		// not-ready hasta converger. La suscripción arranca antes de la precarga
+		// para no perder revocaciones durante la carga.
+		snapshot := autorizacion.NuevoSnapshot(d.Identidad)
+		m.consumidor = autorizacion.NuevoReconstructor(cons, snapshot, d.Revocacion)
 	}
 	return m, nil
 }
