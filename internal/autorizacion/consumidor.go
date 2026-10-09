@@ -27,9 +27,11 @@ import (
 // cambia el resultado.
 func NuevoConsumidorRevocacion(difusor bus.Broadcaster, proy *Proyeccion) (worker.Worker, error) {
 	marcar := func(ctx context.Context, s bus.Sobre) error {
-		// TODO(bff, ADR 26): registrar la marca de frescura del canal aquí, para
-		// que la regla de 15 s/fallback (Proyeccion.Revocada) sepa cuándo fue la
-		// última señal. Esta pieza solo cubre el transporte.
+		// La frescura del canal NO se registra aquí: ADR 26 §5 es explícito en que
+		// la frescura no se infiere de la llegada de revocaciones (puede no haber
+		// ninguna durante un periodo sano). La señal de frescura vendrá de un
+		// heartbeat/watermark del canal (puerto autorizacion.Frescura), que es
+		// fase siguiente. Este handler solo marca el tombstone recibido.
 		proy.Marcar(s.AgregadoID)
 		return nil
 	}
