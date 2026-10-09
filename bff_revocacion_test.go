@@ -3,8 +3,6 @@ package bff
 import (
 	"net/http"
 	"testing"
-
-	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
 )
 
 // TestNewSinBusNoCreaConsumidor: en desarrollo sin bus, New no construye el
@@ -35,11 +33,11 @@ func TestRoutesConRevocacionNilNoPanic(t *testing.T) {
 	m.Routes(mux)
 }
 
-// TestWorkersConProyeccion: si la raíz inyecta proyección pero no Broadcaster,
-// tampoco se crea consumidor (hace falta el bus para suscribir). Documenta que
-// ambas dependencias son necesarias.
+// TestWorkersSinBroadcasterNoCreaConsumidor: sin Broadcaster (desarrollo sin
+// bus), bff no construye proyección ni consumidor; Workers queda vacío. bff
+// sirve con verificación de firma, sin tombstones.
 func TestWorkersSinBroadcasterNoCreaConsumidor(t *testing.T) {
-	m, err := New(Pools{}, Deps{Revocacion: autorizacion.NuevaProyeccion()})
+	m, err := New(Pools{}, Deps{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
