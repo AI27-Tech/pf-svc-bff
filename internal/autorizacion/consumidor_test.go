@@ -35,13 +35,14 @@ func TestConsumidorMarcaProyeccion(t *testing.T) {
 	defer c.Cerrar()
 
 	proy := NuevaProyeccion()
+	senal := NuevaSenalCanal(time.Now)
 
 	// Antes de la difusión, la sesión no consta revocada.
 	if proy.Revocada(context.Background(), "sesion-x") {
 		t.Fatal("la proyección no debería conocer la sesión todavía")
 	}
 
-	w, err := NuevoConsumidorRevocacion(c, proy)
+	w, err := NuevoConsumidorRevocacion(c, proy, senal)
 	if err != nil {
 		t.Fatalf("nuevo consumidor: %v", err)
 	}
@@ -73,4 +74,64 @@ func TestConsumidorMarcaProyeccion(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("la proyección nunca marcó la sesión: el consumidor no procesó la difusión")
+}
+
+// TestHeartbeatRefrescaSinMarcarTombstone verifica la discriminación por
+// inclusión: un sobre de heartbeat refresca la señal del canal pero NO marca un
+// tombstone (no es una revocación). Es lo que permite medir frescura sin tratar
+// el latido como una sesión revocada.
+func TestHeartbeatRefrescaSinMarcarTombstone(t *testing.T) {
+	c, err := busnats.Conectar(urlNATS())
+	if err != nil {
+		t.Fatalf("conectar: %v", err)
+	}
+	defer c.Cerrar()
+
+	proy := NuevaProyeccion()
+	senal := NuevaSenalCanal(time.Now)
+	antes := senal.UltimaSenal()
+
+	w, err := NuevoConsumidorRevocacion(c, proy, senal)
+	if err != nil {
+		t.Fatalf("nuevo consumidor: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = w.Run(ctx) }()
+	time.Sleep(300 * time.Millisecond)
+
+	time.Sleep(10 * time.Millisecond) // garantiza que el reloj avance
+	// Un tipo que NO es sesion.revocada: representa el heartbeat del canal. Se usa
+	// el literal (no busnats.TipoHeartbeat) a propósito: la propiedad bajo prueba
+	// es "cualquier sobre que no sea sesion.revocada refresca sin marcar
+	// tombstone", y no debe acoplar bff a la versión de platform-go que define esa
+	// constante. El consumidor discrimina por inclusión (sesion.revocada), no por
+	// el valor del heartbeat.
+	err = c.Broadcast(ctx, bus.Sobre{
+		Tipo:         "bus.heartbeat",
+		OcurridoEn:   time.Now().UTC(),
+		Sensibilidad: bus.SensibilidadRestringida,
+	})
+	if err != nil {
+		t.Fatalf("broadcast heartbeat: %v", err)
+	}
+
+	// La señal debe avanzar; ningún tombstone debe aparecer.
+	deadline := time.Now().Add(3 * time.Second)
+	refrescó := false
+	for time.Now().Before(deadline) {
+		if senal.UltimaSenal().After(antes) {
+			refrescó = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !refrescó {
+		t.Fatal("el heartbeat debió refrescar la señal del canal")
+	}
+	// El heartbeat no tiene AgregadoID; aunque lo tuviera, no es sesion.revocada,
+	// así que no debe constar como revocado.
+	if proy.Revocada(context.Background(), "") {
+		t.Error("un heartbeat no debe marcar un tombstone")
+	}
 }
