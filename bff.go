@@ -23,9 +23,11 @@
 package bff
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
+	"github.com/AI27-Tech/pf-pkg-platform-go/bus"
 	"github.com/AI27-Tech/pf-pkg-platform-go/worker"
 	"github.com/AI27-Tech/pf-svc-bff/internal/agregacion"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
@@ -52,25 +54,45 @@ type Deps struct {
 	// Verificador verifica JWT localmente contra el JWKS del IdP interno
 	// (auth.NewVerifier). Nunca viaja a identidad para verificar (ADR 26).
 	Verificador auth.Authenticator
-	// Revocacion consulta la proyeccion local de tombstones antes de aceptar una
-	// ruta protegida (ADR 26 §3). La alimenta el worker de sesion.revocada.
-	Revocacion auth.RevocationChecker
+	// Revocacion es la proyeccion local de tombstones que el middleware consulta
+	// antes de aceptar una ruta protegida (ADR 26 §3). Es el tipo concreto de bff
+	// porque el worker de sesion.revocada (que la raiz arranca) la alimenta: el
+	// middleware y el worker comparten la MISMA instancia. Puede ser nil en
+	// desarrollo (sin consulta de tombstones).
+	Revocacion *autorizacion.Proyeccion
+	// Broadcaster es el puerto de difusion del bus (ADR 29 §3). Si no es nil, bff
+	// arranca su consumidor de sesion.revocada, que marca la proyeccion a cada
+	// difusion. Lo inyecta la raiz; nil en desarrollo sin bus.
+	Broadcaster bus.Broadcaster
 }
 
 // Module es la instancia construida del modulo bff.
 type Module struct {
-	deps     Deps
-	handlers *agregacion.Handlers
+	deps       Deps
+	handlers   *agregacion.Handlers
+	consumidor worker.Worker
 }
 
 // New recibe los pools (vacios en bff) y los puertos ya resueltos. No lee
-// entorno (00 regla 4): la raiz cablea todo.
+// entorno (00 regla 4): la raiz cablea todo. Si la raiz inyecta un Broadcaster
+// y una proyeccion, construye el consumidor de sesion.revocada que la alimenta.
 func New(_ Pools, d Deps) (*Module, error) {
 	h := agregacion.NewHandlers(agregacion.Deps{
 		Identidad: d.Identidad,
 		Operacion: d.Operacion,
 	})
-	return &Module{deps: d, handlers: h}, nil
+	m := &Module{deps: d, handlers: h}
+
+	// El consumidor solo se construye si hay bus y proyeccion que alimentar. Sin
+	// ellos, bff sirve con verificacion de firma pero sin tombstones (desarrollo).
+	if d.Broadcaster != nil && d.Revocacion != nil {
+		cons, err := autorizacion.NuevoConsumidorRevocacion(d.Broadcaster, d.Revocacion)
+		if err != nil {
+			return nil, fmt.Errorf("construir consumidor de revocacion: %w", err)
+		}
+		m.consumidor = cons
+	}
+	return m, nil
 }
 
 // Routes monta las rutas HTTP del modulo en el mux dado. Monta exactamente las
@@ -89,7 +111,14 @@ func (m *Module) Routes(mux *http.ServeMux) {
 
 	// Rutas protegidas: verificacion local + consulta de tombstones antes de
 	// aceptar (ADR 26). El middleware de plataforma inyecta las claims en el ctx.
-	protegido := autorizacion.Middleware(m.deps.Verificador, m.deps.Revocacion)
+	// La proyeccion es un *Proyeccion; si es nil, se pasa un RevocationChecker
+	// nil de interfaz (no un puntero nil envuelto), para que el middleware omita
+	// la consulta de tombstones en vez de hacer panic.
+	var rev auth.RevocationChecker
+	if m.deps.Revocacion != nil {
+		rev = m.deps.Revocacion
+	}
+	protegido := autorizacion.Middleware(m.deps.Verificador, rev)
 	mux.Handle("DELETE /api/v1/sesion", protegido(http.HandlerFunc(m.handlers.CerrarSesion)))
 	mux.Handle("POST /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.CrearViaje)))
 	mux.Handle("GET /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.ListarViajes)))
@@ -97,15 +126,17 @@ func (m *Module) Routes(mux *http.ServeMux) {
 }
 
 // Workers devuelve los workers embebidos del modulo (ADR 29 §6). bff tiene uno:
-// el consumidor de sesion.revocada, con su propia suscripcion durable en el
-// broker V1 (DEC-057), su proyeccion local de tombstones, su snapshot de
-// reconstruccion y su readiness, aunque comparta proceso con otros modulos en
-// core. La raiz no comparte consumidor ni proyeccion entre modulos.
+// el consumidor de sesion.revocada, con su proyeccion local de tombstones,
+// aunque comparta proceso con otros modulos en core. La raiz no comparte
+// consumidor ni proyeccion entre modulos.
 //
-// Scaffolding: hoy devuelve una lista vacia. El consumidor se cablea cuando la
-// raiz inyecte el adaptador de bus (bus/memory en desarrollo; broker real en
-// espera de ADR 32) y la suscripcion durable propia exista. El codigo del
-// consumidor y su proyeccion viven en internal/autorizacion.
+// Devuelve el consumidor solo si la raiz inyecto el Broadcaster y la proyeccion
+// (ver New). Sin bus (desarrollo), la lista va vacia: bff sirve con verificacion
+// de firma pero sin tombstones. La reconstruccion por snapshot y la readiness
+// del canal (ADR 26) son fases siguientes.
 func (m *Module) Workers() []worker.Worker {
-	return nil
+	if m.consumidor == nil {
+		return nil
+	}
+	return []worker.Worker{m.consumidor}
 }

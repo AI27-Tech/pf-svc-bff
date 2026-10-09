@@ -13,6 +13,7 @@ package autorizacion
 import (
 	"context"
 	"net/http"
+	"sync"
 
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 )
@@ -53,9 +54,12 @@ func ClaimsDe(ctx context.Context) *auth.Claims {
 // ya falla seguro: sin datos cargados, una consulta responde "no se puede
 // afirmar que este viva" segun la postura que configure la raiz.
 type Proyeccion struct {
-	// revocadas es el conjunto de sesiones revocadas conocidas. Mapa como dato;
-	// el acceso concurrente lo protege la raiz cuando cablee el worker (el
-	// esqueleto no arranca goroutines, 00 regla de concurrencia).
+	// mu protege revocadas: el worker de sesion.revocada escribe (Marcar) y el
+	// middleware lee (Revocada) en cada petición, de forma concurrente. RWMutex
+	// porque las lecturas (una por petición protegida) superan de lejos a las
+	// escrituras (una por revocación).
+	mu sync.RWMutex
+	// revocadas es el conjunto de sesiones revocadas conocidas.
 	revocadas map[string]struct{}
 }
 
@@ -74,9 +78,11 @@ func NuevaProyeccion() *Proyeccion {
 // Esa logica se cablea cuando la raiz inyecte el reloj, el puerto de identidad y
 // el worker de sesion.revocada.
 func (p *Proyeccion) Revocada(_ context.Context, sesionID string) bool {
-	if p == nil || p.revocadas == nil {
+	if p == nil {
 		return false
 	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	_, revocada := p.revocadas[sesionID]
 	return revocada
 }
@@ -85,6 +91,8 @@ func (p *Proyeccion) Revocada(_ context.Context, sesionID string) bool {
 // mismo sesionID dos veces no cambia el resultado. Lo invoca el worker de
 // sesion.revocada al procesar un evento, y la reconstruccion por snapshot.
 func (p *Proyeccion) Marcar(sesionID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.revocadas == nil {
 		p.revocadas = make(map[string]struct{})
 	}
