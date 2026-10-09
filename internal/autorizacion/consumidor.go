@@ -16,24 +16,33 @@ import (
 	"github.com/AI27-Tech/pf-pkg-platform-go/worker"
 )
 
-// NuevoConsumidorRevocacion crea el worker que suscribe la difusión de
-// sesion.revocada y marca cada sesión en la proyección. difusor es el puerto de
-// broadcast del bus (lo inyecta la raíz); proy es la proyección local que el
-// middleware consulta. El worker lo arranca la raíz en su RunGroup.
+// tipoSesionRevocada es el tipo de evento que marca un tombstone. bff reconoce
+// su propio tipo de dominio (ADR 22: <agregado>.<participio>); cualquier otro
+// sobre del broadcast (p. ej. el heartbeat del canal) solo cuenta como señal de
+// frescura, no como revocación. Discriminar por INCLUSIÓN —no "todo lo que no
+// es heartbeat"— evita acoplar bff a los tipos de otros emisores y lo mantiene
+// robusto ante tipos futuros en el broadcast.
+const tipoSesionRevocada = "sesion.revocada"
+
+// NuevoConsumidorRevocacion crea el worker que suscribe la difusión del canal.
+// Cada sobre recibido —sea un sesion.revocada o un heartbeat— refresca la señal
+// del canal (senal); solo un sesion.revocada marca el tombstone en la proyección
+// (proy). difusor es el puerto de broadcast del bus; todos los inyecta la raíz.
 //
-// El handler marca por el AgregadoID del sobre, que para sesion.revocada es el
-// sesion_id (la clave de orden que fija el productor, identidad). Marcar es
-// idempotente, así que una difusión repetida (at-least-once del transporte) no
-// cambia el resultado.
-func NuevoConsumidorRevocacion(difusor bus.Broadcaster, proy *Proyeccion) (worker.Worker, error) {
-	marcar := func(ctx context.Context, s bus.Sobre) error {
-		// La frescura del canal NO se registra aquí: ADR 26 §5 es explícito en que
-		// la frescura no se infiere de la llegada de revocaciones (puede no haber
-		// ninguna durante un periodo sano). La señal de frescura vendrá de un
-		// heartbeat/watermark del canal (puerto autorizacion.Frescura), que es
-		// fase siguiente. Este handler solo marca el tombstone recibido.
-		proy.Marcar(s.AgregadoID)
+// Separar frescura de tombstone cumple ADR 26 §5: la frescura se mide por señal
+// del canal, no por la llegada de revocaciones (que pueden faltar en un periodo
+// sano). Marcar es idempotente, así que una difusión repetida no cambia nada.
+func NuevoConsumidorRevocacion(difusor bus.Broadcaster, proy *Proyeccion, senal *SenalCanal) (worker.Worker, error) {
+	manejar := func(ctx context.Context, s bus.Sobre) error {
+		// Toda señal del canal cuenta como frescura, cualquiera que sea su tipo.
+		if senal != nil {
+			senal.Marcar()
+		}
+		// Solo una revocación real marca el tombstone.
+		if s.Tipo == tipoSesionRevocada {
+			proy.Marcar(s.AgregadoID)
+		}
 		return nil
 	}
-	return difusor.SubscribeBroadcast(marcar)
+	return difusor.SubscribeBroadcast(manejar)
 }
