@@ -9,7 +9,6 @@ import (
 
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	bff "github.com/AI27-Tech/pf-svc-bff"
-	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
 )
 
 // rutaContrato es una operacion de la fase (a) de bff.yaml: su metodo, su ruta y
@@ -43,7 +42,6 @@ func TestRutasMontadasContraContrato(t *testing.T) {
 		// Verificador siempre falla: basta para que la ruta protegida resuelva su
 		// patron (el middleware corre, no el handler). La ruta publica no lo usa.
 		Verificador: verificadorSiempreFalla{},
-		Revocacion:  autorizacion.NuevaProyeccion(),
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -65,7 +63,6 @@ func TestRutasMontadasContraContrato(t *testing.T) {
 func TestRutaNoDeContratoNoMontada(t *testing.T) {
 	mod, _ := bff.New(bff.Pools{}, bff.Deps{
 		Verificador: verificadorSiempreFalla{},
-		Revocacion:  autorizacion.NuevaProyeccion(),
 	})
 	mux := http.NewServeMux()
 	mod.Routes(mux)

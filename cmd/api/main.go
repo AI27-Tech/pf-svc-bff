@@ -20,7 +20,6 @@ import (
 	"github.com/AI27-Tech/pf-pkg-platform-go/server"
 	bff "github.com/AI27-Tech/pf-svc-bff"
 	bffhttp "github.com/AI27-Tech/pf-svc-bff/adapters/http"
-	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
 )
 
 // Claves de entorno propias de bff: las URL base de sus aristas de fase (a) y la
@@ -79,16 +78,14 @@ func run() error {
 	// claim tecnico `aud` NO autoriza (DEC-054).
 	verificador := auth.NewVerifier(cfg.JWKSURL, os.Getenv(envAudiencia), ttlJWKS)
 
-	// Proyeccion de tombstones (ADR 26). En standalone arranca vacia: sin el
-	// worker de sesion.revocada cableado por core, no hay difusion. La raiz
-	// reconstruye por snapshot antes de servir trafico protegido en produccion.
-	revocacion := autorizacion.NuevaProyeccion()
-
+	// Standalone sin bus: no se pasa Broadcaster, así que bff no monta la
+	// proyección de tombstones ni el consumidor de sesion.revocada. Sirve con
+	// verificación de firma. La revocación efectiva end-to-end es de core, que sí
+	// cablea el bus (I5: el standalone demuestra que el módulo arranca solo).
 	mod, err := bff.New(bff.Pools{}, bff.Deps{
 		Identidad:   identidad,
 		Operacion:   operacion,
 		Verificador: verificador,
-		Revocacion:  revocacion,
 	})
 	if err != nil {
 		return err
