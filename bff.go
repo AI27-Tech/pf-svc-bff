@@ -55,15 +55,13 @@ type Deps struct {
 	// Verificador verifica JWT localmente contra el JWKS del IdP interno
 	// (auth.NewVerifier). Nunca viaja a identidad para verificar (ADR 26).
 	Verificador auth.Authenticator
-	// Revocacion es la proyeccion local de tombstones que el middleware consulta
-	// antes de aceptar una ruta protegida (ADR 26 §3). Es el tipo concreto de bff
-	// porque el worker de sesion.revocada (que la raiz arranca) la alimenta: el
-	// middleware y el worker comparten la MISMA instancia. Puede ser nil en
-	// desarrollo (sin consulta de tombstones).
-	Revocacion *autorizacion.Proyeccion
 	// Broadcaster es el puerto de difusion del bus (ADR 29 §3). Si no es nil, bff
-	// arranca su consumidor de sesion.revocada, que marca la proyeccion a cada
-	// difusion. Lo inyecta la raiz; nil en desarrollo sin bus.
+	// construye internamente su proyeccion de tombstones y arranca el consumidor
+	// de sesion.revocada que la alimenta; el middleware consulta esa MISMA
+	// proyeccion. La proyeccion es asunto interno de bff (no la construye la raiz):
+	// asi el middleware y el worker comparten instancia por construccion, y la
+	// raiz no necesita nombrar un tipo de internal/. Nil en desarrollo sin bus:
+	// bff sirve con verificacion de firma pero sin consulta de tombstones.
 	Broadcaster bus.Broadcaster
 }
 
@@ -72,11 +70,17 @@ type Module struct {
 	deps       Deps
 	handlers   *agregacion.Handlers
 	consumidor worker.Worker
+	// revocacion es la proyeccion local de tombstones. La construye New cuando
+	// hay Broadcaster; el middleware la consulta y el worker la alimenta. Nil si
+	// no hay bus. Es *autorizacion.Proyeccion, un tipo de internal/: por eso bff
+	// la crea y la retiene aqui, en vez de recibirla de la raiz.
+	revocacion *autorizacion.Proyeccion
 }
 
 // New recibe los pools (vacios en bff) y los puertos ya resueltos. No lee
-// entorno (00 regla 4): la raiz cablea todo. Si la raiz inyecta un Broadcaster
-// y una proyeccion, construye el consumidor de sesion.revocada que la alimenta.
+// entorno (00 regla 4): la raiz cablea todo. Si la raiz inyecta un Broadcaster,
+// bff construye su proyeccion de tombstones y el consumidor de sesion.revocada
+// que la alimenta.
 func New(_ Pools, d Deps) (*Module, error) {
 	h := agregacion.NewHandlers(agregacion.Deps{
 		Identidad: d.Identidad,
@@ -84,9 +88,14 @@ func New(_ Pools, d Deps) (*Module, error) {
 	})
 	m := &Module{deps: d, handlers: h}
 
-	// El consumidor solo se construye si hay bus y proyeccion que alimentar. Sin
-	// ellos, bff sirve con verificacion de firma pero sin tombstones (desarrollo).
-	if d.Broadcaster != nil && d.Revocacion != nil {
+	// El consumidor solo se construye si hay bus. Sin el, bff sirve con
+	// verificacion de firma pero sin tombstones (desarrollo).
+	if d.Broadcaster != nil {
+		// bff es dueño de su proyeccion: la crea aqui para que el middleware y el
+		// worker compartan la MISMA instancia por construccion.
+		proy := autorizacion.NuevaProyeccion()
+		m.revocacion = proy
+
 		// La misma SenalCanal la refresca el consumidor (con cada sobre del canal)
 		// y la lee la proyeccion (para decidir si el canal esta obsoleto). Al
 		// cablear la frescura, la proyeccion entra en la regla de ADR 26 §5:
@@ -94,9 +103,9 @@ func New(_ Pools, d Deps) (*Module, error) {
 		// es normativo (ADR 26 §5), no configuracion de despliegue.
 		senal := autorizacion.NuevaSenalCanal(time.Now)
 		autoridad := autorizacion.NuevaAutoridad(d.Identidad)
-		d.Revocacion.ConFrescura(time.Now, senal, autoridad, umbralFrescura)
+		proy.ConFrescura(time.Now, senal, autoridad, umbralFrescura)
 
-		cons, err := autorizacion.NuevoConsumidorRevocacion(d.Broadcaster, d.Revocacion, senal)
+		cons, err := autorizacion.NuevoConsumidorRevocacion(d.Broadcaster, proy, senal)
 		if err != nil {
 			return nil, fmt.Errorf("construir consumidor de revocacion: %w", err)
 		}
@@ -105,7 +114,7 @@ func New(_ Pools, d Deps) (*Module, error) {
 		// not-ready hasta converger. La suscripción arranca antes de la precarga
 		// para no perder revocaciones durante la carga.
 		snapshot := autorizacion.NuevoSnapshot(d.Identidad)
-		m.consumidor = autorizacion.NuevoReconstructor(cons, snapshot, d.Revocacion)
+		m.consumidor = autorizacion.NuevoReconstructor(cons, snapshot, proy)
 	}
 	return m, nil
 }
@@ -131,12 +140,12 @@ func (m *Module) Routes(mux *http.ServeMux) {
 
 	// Rutas protegidas: verificacion local + consulta de tombstones antes de
 	// aceptar (ADR 26). El middleware de plataforma inyecta las claims en el ctx.
-	// La proyeccion es un *Proyeccion; si es nil, se pasa un RevocationChecker
-	// nil de interfaz (no un puntero nil envuelto), para que el middleware omita
-	// la consulta de tombstones en vez de hacer panic.
+	// La proyeccion (m.revocacion) es un *Proyeccion; si es nil (sin bus), se pasa
+	// un RevocationChecker nil de interfaz (no un puntero nil envuelto), para que
+	// el middleware omita la consulta de tombstones en vez de hacer panic.
 	var rev auth.RevocationChecker
-	if m.deps.Revocacion != nil {
-		rev = m.deps.Revocacion
+	if m.revocacion != nil {
+		rev = m.revocacion
 	}
 	protegido := autorizacion.Middleware(m.deps.Verificador, rev)
 	mux.Handle("DELETE /api/v1/sesion", protegido(http.HandlerFunc(m.handlers.CerrarSesion)))
