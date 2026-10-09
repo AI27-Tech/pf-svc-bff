@@ -13,6 +13,8 @@ package autorizacion
 import (
 	"context"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 )
@@ -53,10 +55,21 @@ func ClaimsDe(ctx context.Context) *auth.Claims {
 // ya falla seguro: sin datos cargados, una consulta responde "no se puede
 // afirmar que este viva" segun la postura que configure la raiz.
 type Proyeccion struct {
-	// revocadas es el conjunto de sesiones revocadas conocidas. Mapa como dato;
-	// el acceso concurrente lo protege la raiz cuando cablee el worker (el
-	// esqueleto no arranca goroutines, 00 regla de concurrencia).
+	// mu protege revocadas: el worker de sesion.revocada escribe (Marcar) y el
+	// middleware lee (Revocada) en cada petición, de forma concurrente. RWMutex
+	// porque las lecturas (una por petición protegida) superan de lejos a las
+	// escrituras (una por revocación).
+	mu sync.RWMutex
+	// revocadas es el conjunto de sesiones revocadas conocidas.
 	revocadas map[string]struct{}
+
+	// Regla de frescura/fallback de ADR 26 §5 (opcional; la habilita ConFrescura).
+	// Si reloj/frescura/umbral no están puestos, Revocada se queda en la ruta
+	// local (solo el set de tombstones), que es el modo de desarrollo sin bus.
+	reloj     func() time.Time
+	frescura  Frescura
+	autoridad Autoridad
+	umbral    time.Duration
 }
 
 // NuevaProyeccion crea una proyeccion vacia. Zero value util: sin snapshot
@@ -66,18 +79,42 @@ func NuevaProyeccion() *Proyeccion {
 	return &Proyeccion{revocadas: make(map[string]struct{})}
 }
 
-// Revocada implementa auth.RevocationChecker: devuelve true si la sesion fue
-// revocada. En el esqueleto solo consulta el conjunto local.
+// Revocada implementa auth.RevocationChecker: devuelve true si la sesión debe
+// rechazarse. Codifica la regla de ADR 26 §3 y §5 como una decisión en orden:
 //
-// TODO(bff, ADR 26): incorporar la regla de frescura (>15 s sin señal del canal
-// -> fallback a identidad -> si no responde, fallar cerrado devolviendo true).
-// Esa logica se cablea cuando la raiz inyecte el reloj, el puerto de identidad y
-// el worker de sesion.revocada.
-func (p *Proyeccion) Revocada(_ context.Context, sesionID string) bool {
-	if p == nil || p.revocadas == nil {
+//  1. Si la sesión está en el set local de tombstones, se rechaza (el broadcast
+//     ya la marcó). La respuesta local siempre gana y no consulta a nadie.
+//  2. Si no, y el canal está FRESCO (señal dentro del umbral), se considera viva:
+//     la ausencia de tombstone local es confiable mientras el canal esté sano.
+//  3. Si el canal está OBSOLETO (>umbral sin señal), se cae al fallback síncrono
+//     a identidad (ADR 26 §5): si confirma vigencia, se permite; si confirma
+//     revocación O NO RESPONDE, se rechaza (FAIL-CLOSED).
+//
+// Sin ConFrescura (desarrollo sin bus), el canal nunca se declara obsoleto y la
+// decisión se queda en los pasos 1–2: solo el set local.
+func (p *Proyeccion) Revocada(ctx context.Context, sesionID string) bool {
+	if p == nil {
 		return false
 	}
-	_, revocada := p.revocadas[sesionID]
+	p.mu.RLock()
+	_, enLocal := p.revocadas[sesionID]
+	obsoleto := p.canalObsoleto()
+	aut := p.autoridad
+	p.mu.RUnlock()
+
+	// Paso 1: la respuesta local gana.
+	if enLocal {
+		return true
+	}
+	// Paso 2: canal fresco (o sin frescura configurada) → ruta local, viva.
+	if !obsoleto || aut == nil {
+		return false
+	}
+	// Paso 3: canal obsoleto → fallback a identidad, fail-closed ante error.
+	revocada, err := aut.SesionRevocada(ctx, sesionID)
+	if err != nil {
+		return true // FAIL-CLOSED (ADR 26 §5): identidad no responde → rechazar.
+	}
 	return revocada
 }
 
@@ -85,6 +122,8 @@ func (p *Proyeccion) Revocada(_ context.Context, sesionID string) bool {
 // mismo sesionID dos veces no cambia el resultado. Lo invoca el worker de
 // sesion.revocada al procesar un evento, y la reconstruccion por snapshot.
 func (p *Proyeccion) Marcar(sesionID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.revocadas == nil {
 		p.revocadas = make(map[string]struct{})
 	}
