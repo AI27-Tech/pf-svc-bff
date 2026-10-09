@@ -25,6 +25,7 @@ package bff
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	"github.com/AI27-Tech/pf-pkg-platform-go/bus"
@@ -86,7 +87,16 @@ func New(_ Pools, d Deps) (*Module, error) {
 	// El consumidor solo se construye si hay bus y proyeccion que alimentar. Sin
 	// ellos, bff sirve con verificacion de firma pero sin tombstones (desarrollo).
 	if d.Broadcaster != nil && d.Revocacion != nil {
-		cons, err := autorizacion.NuevoConsumidorRevocacion(d.Broadcaster, d.Revocacion)
+		// La misma SenalCanal la refresca el consumidor (con cada sobre del canal)
+		// y la lee la proyeccion (para decidir si el canal esta obsoleto). Al
+		// cablear la frescura, la proyeccion entra en la regla de ADR 26 §5:
+		// canal obsoleto -> fallback a identidad -> fail-closed. El umbral de 15s
+		// es normativo (ADR 26 §5), no configuracion de despliegue.
+		senal := autorizacion.NuevaSenalCanal(time.Now)
+		autoridad := autorizacion.NuevaAutoridad(d.Identidad)
+		d.Revocacion.ConFrescura(time.Now, senal, autoridad, umbralFrescura)
+
+		cons, err := autorizacion.NuevoConsumidorRevocacion(d.Broadcaster, d.Revocacion, senal)
 		if err != nil {
 			return nil, fmt.Errorf("construir consumidor de revocacion: %w", err)
 		}
@@ -94,6 +104,11 @@ func New(_ Pools, d Deps) (*Module, error) {
 	}
 	return m, nil
 }
+
+// umbralFrescura es la ventana tras la cual el canal de revocacion se considera
+// obsoleto y las rutas protegidas caen al fallback durable con identidad
+// (ADR 26 §5). Es normativo, no configurable por despliegue.
+const umbralFrescura = 15 * time.Second
 
 // Routes monta las rutas HTTP del modulo en el mux dado. Monta exactamente las
 // seis operaciones de la fase (a) de bff.yaml. Las rutas publicas (iniciar

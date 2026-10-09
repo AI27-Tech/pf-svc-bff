@@ -11,12 +11,49 @@ package autorizacion
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
+// SenalCanal implementa Frescura: registra cuándo llegó la última señal del
+// canal de difusión. Cualquier sobre del broadcast (un heartbeat o un evento
+// real) cuenta como señal de vida; lo alimenta el consumidor en cada entrega.
+// Es seguro para uso concurrente: el consumidor marca y Revocada lee.
+type SenalCanal struct {
+	reloj  func() time.Time
+	mu     sync.RWMutex
+	ultima time.Time
+}
+
+// NuevaSenalCanal crea la señal con el reloj dado (time.Now en producción,
+// inyectable en pruebas). Arranca con la última señal en el instante de
+// creación: una réplica recién nacida se considera fresca hasta que pase el
+// umbral sin recibir nada, no obsoleta de entrada.
+func NuevaSenalCanal(reloj func() time.Time) *SenalCanal {
+	if reloj == nil {
+		reloj = time.Now
+	}
+	return &SenalCanal{reloj: reloj, ultima: reloj()}
+}
+
+// Marcar registra que acaba de llegar una señal del canal.
+func (s *SenalCanal) Marcar() {
+	s.mu.Lock()
+	s.ultima = s.reloj()
+	s.mu.Unlock()
+}
+
+// UltimaSenal implementa Frescura.
+func (s *SenalCanal) UltimaSenal() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ultima
+}
+
+var _ Frescura = (*SenalCanal)(nil)
+
 // Frescura informa cuándo fue la última señal verificable del canal de
-// revocación. La proyección la usa para decidir si el canal está obsoleto. Su
-// implementación real (heartbeat del broadcast) es fase siguiente.
+// revocación. La proyección la usa para decidir si el canal está obsoleto.
 type Frescura interface {
 	// UltimaSenal es el instante de la última señal verificable del canal.
 	UltimaSenal() time.Time
