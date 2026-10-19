@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026:10:19
+
+**Resumen:** Se sube el pin de `pf-pkg-contracts` de `v0.1.0-tracer.4` a `v0.1.0-tracer.10`. El salto es 100% aditivo en los clientes generados que bff consume (sin líneas eliminadas ni cambios de firma entre las dos olas), así que no toca ningún handler ni tipo existente. Desbloquea de hecho E6-T3 (AI27-80, Gonzalo): la operación `descargarViaje` y sus schemas (`DescargaViaje`, `FichaTecnicaDescarga`, …) entraron al contrato en tracer.11 y recién ahora están en el cliente Go que bff resuelve; sin este bump no se podían consumir. No monta la ruta de descarga (es trabajo de E6-T3, de otro dueño): solo pone el contrato al día.
+
+**Para quién:** para quien tome E6-T3 sobre bff y para cualquier consumo futuro de la superficie de fase (b): el cliente generado deja de estar siete olas atrás del contrato vivo.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` a `v0.1.0-tracer.10`.
+
+**Verificado:** `go build`/`vet` en verde, `gofmt` limpio, `go test ./...` en verde, `arch-test@v0.1.1 OK`.
+
 ## 2026:10:07 15:37
 
 **Resumen:** Pruebas de comportamiento round-trip para los handlers de agregacion de bff. Cierra el unico hueco de cobertura del scaffold: la capa de handlers tenia solo la prueba de montaje de rutas, que pasaria aunque cada handler devolviera la forma equivocada.
