@@ -6,6 +6,7 @@ import (
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
+	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
@@ -141,6 +142,109 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 	// Composicion pura de hitos (E2-T2/E2-T3). Traduce estado tecnico -> hito y
 	// colapsa el bucle multi-parada; el cliente nunca ve el token tecnico.
 	escribirJSON(w, http.StatusOK, tracking.Componer(*detalle))
+}
+
+// --- Emergencia del portal cliente (E7/tracer.17, ADR 21 §6) --------------
+// bff reenvía a mensajeria propagando el Bearer del usuario; mensajeria autoriza
+// por los claims y proyecta la vista mínima del cliente. bff traduce la vista
+// interna del caso a la vista cliente (sin origen, actor ni reclamo).
+
+// ListarEmergenciasCliente delega en mensajeria.listarEmergencias y devuelve la
+// vista mínima: el indicador agregado "emergencia activa" y los casos por
+// fecha/hora. Ruta protegida.
+func (h *Handlers) ListarEmergenciasCliente(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: listarEmergencias: id invalido"))
+		return
+	}
+	pagina, err := h.deps.Mensajeria.ListarEmergencias(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aEmergenciasCliente(pagina))
+}
+
+// ActivarEmergenciaCliente delega en mensajeria.activarEmergencia (idempotente
+// por activacion_id). Devuelve 201 (nuevo) o 200 (reentrega) con la vista
+// cliente del caso. Ruta protegida.
+func (h *Handlers) ActivarEmergenciaCliente(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: activarEmergencia: id invalido"))
+		return
+	}
+	var cuerpo bffclient.ActivarEmergenciaClienteEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	caso, err := h.deps.Mensajeria.ActivarEmergencia(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.ActivarEmergenciaEntrada{ActivacionId: cuerpo.ActivacionId})
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, aEmergenciaCliente(caso))
+}
+
+// AgregarNotaEmergenciaCliente delega en mensajeria.agregarNotaEmergencia. La
+// respuesta del portal cliente no lleva cuerpo: 201 al agregar. Ruta protegida.
+func (h *Handlers) AgregarNotaEmergenciaCliente(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: agregarNota: id de viaje invalido"))
+		return
+	}
+	eid, err := uuidDe(r.PathValue("eid"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: agregarNota: id de emergencia invalido"))
+		return
+	}
+	var cuerpo bffclient.NotaEmergenciaClienteEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.AgregarNotaEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid,
+		msgclient.NotaEmergenciaEntrada{Cuerpo: cuerpo.Cuerpo}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// aEmergenciaCliente traduce la vista interna del caso (CasoEmergencia) a la
+// vista cliente (EmergenciaCliente): solo id, estado y fecha. Descarta origen,
+// actor y reclamo (solo-Interno, ADR 21 §6).
+func aEmergenciaCliente(c *msgclient.CasoEmergencia) bffclient.EmergenciaCliente {
+	if c == nil {
+		return bffclient.EmergenciaCliente{}
+	}
+	return bffclient.EmergenciaCliente{
+		Id:         c.Id,
+		Estado:     bffclient.EmergenciaClienteEstado(c.Estado),
+		ActivadaEn: c.ActivadaEn,
+	}
+}
+
+// aEmergenciasCliente arma la vista mínima de la lista: el indicador agregado
+// (true si hay al menos un caso en abierta o en_atencion, ADR 21 §6) y los casos
+// traducidos. mensajeria ya excluye las cerradas para el cliente.
+func aEmergenciasCliente(p *msgclient.PaginaEmergencias) bffclient.EmergenciasCliente {
+	out := bffclient.EmergenciasCliente{Casos: []bffclient.EmergenciaCliente{}}
+	if p == nil {
+		return out
+	}
+	for _, c := range p.Items {
+		cc := c
+		out.Casos = append(out.Casos, aEmergenciaCliente(&cc))
+		if c.Estado == msgclient.EstadoEmergenciaAbierta || c.Estado == msgclient.EstadoEmergenciaEnAtencion {
+			out.EmergenciaActiva = true
+		}
+	}
+	return out
 }
 
 // aSesionBff traduce la SesionEmitida de identidad a la Sesion de bff. Ambas

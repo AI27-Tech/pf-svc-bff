@@ -51,6 +51,9 @@ type Deps struct {
 	// Operacion es la arista a operacion: crear viaje, listar por alcance y obtener
 	// detalle. Sin transiciones internas ni asignacion (bff.md (f)).
 	Operacion OperacionPort
+	// Mensajeria es la arista a mensajeria: el portal cliente de emergencia
+	// (E7/tracer.17). Primera arista bff→mensajeria; propaga el token del usuario.
+	Mensajeria MensajeriaPort
 
 	// Verificador verifica JWT localmente contra el JWKS del IdP interno
 	// (auth.NewVerifier). Nunca viaja a identidad para verificar (ADR 26).
@@ -83,8 +86,9 @@ type Module struct {
 // que la alimenta.
 func New(_ Pools, d Deps) (*Module, error) {
 	h := agregacion.NewHandlers(agregacion.Deps{
-		Identidad: d.Identidad,
-		Operacion: d.Operacion,
+		Identidad:  d.Identidad,
+		Operacion:  d.Operacion,
+		Mensajeria: d.Mensajeria,
 	})
 	m := &Module{deps: d, handlers: h}
 
@@ -152,6 +156,9 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.CrearViaje)))
 	mux.Handle("GET /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.ListarViajes)))
 	mux.Handle("GET /api/v1/viajes/{id}", protegido(http.HandlerFunc(m.handlers.SeguirViaje)))
+	mux.Handle("GET /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasCliente)))
+	mux.Handle("POST /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaCliente)))
+	mux.Handle("POST /api/v1/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaCliente)))
 }
 
 // Workers devuelve los workers embebidos del modulo (ADR 29 §6). bff tiene uno:
