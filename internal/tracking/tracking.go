@@ -67,7 +67,9 @@ func Etiqueta(e estados.EstadoViaje) (string, bool) {
 // Compone:
 //   - el hito (traduccion estado tecnico -> etiqueta, colapsando multi-parada);
 //   - el ETA manual con su marca stale (ver nota de contradiccion abajo);
-//   - NO compone incidencias curadas: ver incidenciasPendientes.
+//   - las incidencias curadas (E2-T3): categoria del cliente + estado + marca de
+//     tiempo, traducidas de las incidencias activas de operacion sin filtrar el
+//     tipo interno (DEC-006). Ver incidenciasCuradas en incidencias.go.
 func Componer(d opclient.ViajeDetalle) bffclient.ViajeSeguimiento {
 	v := d.Viaje
 
@@ -80,12 +82,20 @@ func Componer(d opclient.ViajeDetalle) bffclient.ViajeSeguimiento {
 		hito.Etiqueta = &etiqueta
 	}
 
+	// Incidencias curadas (E2-T3): se traduce cada incidencia activa que operacion
+	// expone (con su tipo_interno, consumo interno) a su categoria del cliente,
+	// sin filtrar el termino tecnico (DEC-006). IncidenciasActivas es opcional en
+	// el contrato (*[]IncidenciaActiva): si viene nil, no hay incidencias abiertas
+	// y la lista va vacia (no nil), nunca se afirma ausencia como dato ausente.
+	var activas []opclient.IncidenciaActiva
+	if d.IncidenciasActivas != nil {
+		activas = *d.IncidenciasActivas
+	}
+
 	seg := bffclient.ViajeSeguimiento{
-		Id:   v.Id,
-		Hito: hito,
-		// Incidencias: ver incidenciasPendientes. En el scaffold va vacio (no nil)
-		// para no afirmar ausencia como dato; la composicion real espera contrato.
-		Incidencias: []bffclient.IncidenciaCurada{},
+		Id:          v.Id,
+		Hito:        hito,
+		Incidencias: incidenciasCuradas(activas),
 	}
 
 	if v.EtaEstimado != nil {
@@ -106,15 +116,8 @@ func Componer(d opclient.ViajeDetalle) bffclient.ViajeSeguimiento {
 	return seg
 }
 
-// incidenciasPendientes documenta por que el scaffold NO compone la vista curada
-// de incidencias (E2-T3), aunque el contrato de bff tenga el campo Incidencias.
-//
-// BRECHA DE CONTRATO (reportada, no rellenada): E2-T3 exige mapear el tipo
-// INTERNO de incidencia a una de las cinco categorias curadas, mas estado
-// (en_atencion/resuelta) e impacto en ETA. Pero operacion.ViajeDetalle solo trae
-// CondicionAbierta con Tipo (INCIDENCIA/SIN_SENAL) y AbiertaEn: no hay tipo
-// interno, estado ni impacto que mapear, y operacion.yaml no tiene lectura de
-// incidencias (solo abrir/resolver). Sin esa superficie no se puede componer la
-// categoria curada con verdad. Hasta que el contrato la exponga, Incidencias
-// viaja vacio. No se inventa el mapeo (DEC-006; bff.md; 00 regla 6).
-func incidenciasPendientes() {}
+// La vista curada de incidencias (E2-T3) la compone incidenciasCuradas en
+// incidencias.go, a partir de ViajeDetalle.incidencias_activas (tracer.16). Se
+// elimino el marcador incidenciasPendientes del scaffold: la brecha de contrato
+// que documentaba (operacion no exponia el tipo_interno en la lectura del viaje)
+// quedo cerrada por el paquete contractual de AI27-59.

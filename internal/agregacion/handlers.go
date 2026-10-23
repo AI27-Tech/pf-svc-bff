@@ -1,18 +1,31 @@
 package agregacion
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"time"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
+	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
+	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
+	"github.com/AI27-Tech/pf-svc-bff/internal/descarga"
+	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
+	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tracking"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
 )
+
+// ahora es la fuente de tiempo para el `generado_en` del expediente de descarga.
+// Variable de paquete para que la prueba pueda sustituirla por un reloj fijo; en
+// produccion es la hora real en UTC.
+var ahora = func() time.Time { return time.Now().UTC() }
 
 // Handlers implementa las seis operaciones de la fase (a) de bff.yaml. Cada
 // handler usa SOLO tipos generados de pf-pkg-contracts para su cuerpo de
@@ -82,7 +95,7 @@ func (h *Handlers) CerrarSesion(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, platformerrors.NewNoAutorizado("bff: cerrarSesion: sesion_id invalido en el token"))
 		return
 	}
-	if err := h.deps.Identidad.RevocarSesion(r.Context(), id); err != nil {
+	if err := h.deps.Identidad.RevocarSesion(tokenctx.Con(r.Context(), r.Header.Get("Authorization")), id); err != nil {
 		escribirError(w, err)
 		return
 	}
@@ -97,7 +110,8 @@ func (h *Handlers) CrearViaje(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, err)
 		return
 	}
-	viaje, err := h.deps.Operacion.CrearViaje(r.Context(), aCrearViajeOperacion(cuerpo))
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	viaje, err := h.deps.Operacion.CrearViaje(ctx, aCrearViajeOperacion(cuerpo))
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -116,7 +130,8 @@ func (h *Handlers) ListarViajes(w http.ResponseWriter, r *http.Request) {
 		c := opclient.Cursor(cursor)
 		params.Cursor = &c
 	}
-	pagina, err := h.deps.Operacion.ListarViajes(r.Context(), params)
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	pagina, err := h.deps.Operacion.ListarViajes(ctx, params)
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -133,7 +148,8 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, platformerrors.NewValidacion("bff: seguirViaje: id invalido"))
 		return
 	}
-	detalle, err := h.deps.Operacion.ObtenerViaje(r.Context(), id)
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -141,6 +157,387 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 	// Composicion pura de hitos (E2-T2/E2-T3). Traduce estado tecnico -> hito y
 	// colapsa el bucle multi-parada; el cliente nunca ve el token tecnico.
 	escribirJSON(w, http.StatusOK, tracking.Componer(*detalle))
+}
+
+// --- Descarga del expediente de UN viaje (E6-T3 / E6-HU-026, DEC-022 #7) ----
+
+// DescargarViaje compone el expediente de descarga de UN viaje leyendo de
+// operacion (la fuente exacta y actual), NUNCA de reportes. Solo usuarios
+// internos (DEC-022 #7): un cliente recibe 403 ANTES de componer dato alguno. El
+// alcance fino lo resuelve operacion; su 403/404 se propaga tal cual. Tras
+// componer con exito, pide a operacion que DEJE el rastro de auditoria de la
+// descarga (exactamente una vez por descarga exitosa); bff no escribe auditoria
+// (no tiene base de datos). Ruta protegida.
+//
+// Exclusiones duras (DEC-009/DEC-039): el expediente no contiene cuenta espejo
+// ni clave_amago (no existen en el origen ni en el contrato). Es descarga de UN
+// viaje; no hay ruta de lote (V2, DEC-023).
+func (h *Handlers) DescargarViaje(w http.ResponseWriter, r *http.Request) {
+	// 1. Autorizacion por audiencia ANTES de componer nada: la descarga es solo
+	//    para usuarios internos (DEC-022 #7). Un cliente -> 403 (Prohibido).
+	claims := autorizacion.ClaimsDe(r.Context())
+	if claims == nil {
+		escribirError(w, platformerrors.NewNoAutorizado("bff: descargarViaje: sin claims"))
+		return
+	}
+	if claims.Audiencia != auth.AudienciaInterno {
+		escribirError(w, errores.NewProhibido("bff: descargarViaje: la descarga del expediente es solo para usuarios internos"))
+		return
+	}
+
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: descargarViaje: id invalido"))
+		return
+	}
+
+	// El Bearer del usuario viaja en el ctx para que el adaptador HTTP lo
+	// propague a operacion: registrarDescargaViaje deja el actor del rastro de
+	// auditoria a partir de claims.Subject (E1-T7), que sin el token quedaria
+	// vacio. El adaptador en proceso de core ignora el ctx-bearer (ya tiene los
+	// claims en el ctx).
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+
+	// 2. Composicion: ficha + bitacora + auditoria, leyendo de operacion. El
+	//    alcance fino lo resuelve operacion: cualquier 403 (fuera de alcance) o
+	//    404 (viaje inexistente) se propaga tal cual, sin componer el resto.
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	bitacora, err := h.bitacoraCompleta(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	auditoria, err := h.auditoriaCompleta(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+
+	expediente := descarga.Componer(*detalle, bitacora, auditoria, ahora())
+
+	// 3. Rastro de auditoria: tras componer con exito, operacion deja el registro
+	//    de la descarga (actor, viaje, momento; E1-T7) en SU transaccion.
+	//    Exactamente una vez por descarga exitosa. Si operacion falla al
+	//    registrar, la descarga no se entrega: no se sirve un expediente cuya
+	//    descarga no quedo auditada.
+	if _, err := h.deps.Operacion.RegistrarDescargaViaje(ctx, id); err != nil {
+		escribirError(w, err)
+		return
+	}
+
+	escribirJSON(w, http.StatusOK, expediente)
+}
+
+// bitacoraCompleta agota la paginacion de la bitacora del viaje: pide pagina a
+// pagina hasta que operacion no devuelve cursor siguiente. El expediente lleva
+// el historico completo, no una pagina (E6-T3). Nunca devuelve nil.
+func (h *Handlers) bitacoraCompleta(ctx context.Context, id opclient.Id) ([]opclient.EntradaBitacora, error) {
+	todas := []opclient.EntradaBitacora{}
+	var cursor *opclient.Cursor
+	for {
+		pagina, err := h.deps.Operacion.ListarBitacora(ctx, id, opclient.ListarBitacoraParams{Cursor: cursor})
+		if err != nil {
+			return nil, err
+		}
+		if pagina == nil {
+			break
+		}
+		todas = append(todas, pagina.Items...)
+		if pagina.CursorSiguiente == nil || *pagina.CursorSiguiente == "" {
+			break
+		}
+		sig := opclient.Cursor(*pagina.CursorSiguiente)
+		cursor = &sig
+	}
+	return todas, nil
+}
+
+// auditoriaCompleta agota la paginacion de la auditoria del viaje, igual que
+// bitacoraCompleta. Nunca devuelve nil.
+func (h *Handlers) auditoriaCompleta(ctx context.Context, id opclient.Id) ([]opclient.RegistroAuditoria, error) {
+	todos := []opclient.RegistroAuditoria{}
+	var cursor *opclient.Cursor
+	for {
+		pagina, err := h.deps.Operacion.ConsultarAuditoria(ctx, id, opclient.ConsultarAuditoriaParams{Cursor: cursor})
+		if err != nil {
+			return nil, err
+		}
+		if pagina == nil {
+			break
+		}
+		todos = append(todos, pagina.Items...)
+		if pagina.CursorSiguiente == nil || *pagina.CursorSiguiente == "" {
+			break
+		}
+		sig := opclient.Cursor(*pagina.CursorSiguiente)
+		cursor = &sig
+	}
+	return todos, nil
+}
+
+// --- Emergencia del portal cliente (E7/tracer.17, ADR 21 §6) --------------
+// bff reenvía a mensajeria propagando el Bearer del usuario; mensajeria autoriza
+// por los claims y proyecta la vista mínima del cliente. bff traduce la vista
+// interna del caso a la vista cliente (sin origen, actor ni reclamo).
+
+// ListarEmergenciasCliente delega en mensajeria.listarEmergencias y devuelve la
+// vista mínima: el indicador agregado "emergencia activa" y los casos por
+// fecha/hora. Ruta protegida.
+func (h *Handlers) ListarEmergenciasCliente(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: listarEmergencias: id invalido"))
+		return
+	}
+	pagina, err := h.deps.Mensajeria.ListarEmergencias(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aEmergenciasCliente(pagina))
+}
+
+// ActivarEmergenciaCliente delega en mensajeria.activarEmergencia (idempotente
+// por activacion_id). Devuelve 201 (nuevo) o 200 (reentrega) con la vista
+// cliente del caso. Ruta protegida.
+func (h *Handlers) ActivarEmergenciaCliente(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: activarEmergencia: id invalido"))
+		return
+	}
+	var cuerpo bffclient.ActivarEmergenciaClienteEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	caso, err := h.deps.Mensajeria.ActivarEmergencia(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.ActivarEmergenciaEntrada{ActivacionId: cuerpo.ActivacionId})
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, aEmergenciaCliente(caso))
+}
+
+// AgregarNotaEmergenciaCliente delega en mensajeria.agregarNotaEmergencia. La
+// respuesta del portal cliente no lleva cuerpo: 201 al agregar. Ruta protegida.
+func (h *Handlers) AgregarNotaEmergenciaCliente(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: agregarNota: id de viaje invalido"))
+		return
+	}
+	eid, err := uuidDe(r.PathValue("eid"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: agregarNota: id de emergencia invalido"))
+		return
+	}
+	var cuerpo bffclient.NotaEmergenciaClienteEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.AgregarNotaEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid,
+		msgclient.NotaEmergenciaEntrada{Cuerpo: cuerpo.Cuerpo}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// --- Atención interna del caso (panel de Reacción, E7/tracer.17) -----------
+// El panel interno (Reacción, supervisor, coordinador) lista y atiende el caso.
+// bff propaga el Bearer y reenvía a mensajeria, que autoriza por los claims
+// (PuedeAtenderEmergencia, ADR 21 §6) y proyecta la vista interna completa. A
+// diferencia del portal cliente, estos handlers NO traducen la respuesta: la
+// vista interna es la del contrato de mensajeria sin recortar. El contrato de
+// bff solo define la vista cliente; estas rutas reenvían tipos de mensajeria.
+
+// versionEsperadaDe lee el query param version_esperada (concurrencia optimista
+// del reclamo). Ausente o vacío = 0 ("nunca reclamado"); mal formado = error.
+func versionEsperadaDe(r *http.Request) (msgclient.VersionReclamo, error) {
+	s := r.URL.Query().Get("version_esperada")
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, platformerrors.NewValidacion("bff: version_esperada invalida: %v", err)
+	}
+	return v, nil
+}
+
+// ListarEmergenciasPanel delega en mensajeria.listarEmergencias y reenvía la
+// vista interna completa (origen, actor, reclamo). mensajeria proyecta según la
+// audiencia del token. Ruta protegida del panel interno.
+func (h *Handlers) ListarEmergenciasPanel(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: listarEmergenciasPanel: id invalido"))
+		return
+	}
+	pagina, err := h.deps.Mensajeria.ListarEmergencias(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, pagina)
+}
+
+// ReclamarEmergenciaPanel delega en mensajeria.reclamarEmergencia. El operador
+// del token toma el caso; devuelve el reclamo (201). Ruta protegida.
+func (h *Handlers) ReclamarEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "reclamar")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	var cuerpo msgclient.ReclamarEmergenciaJSONRequestBody
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	reclamo, err := h.deps.Mensajeria.ReclamarEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, reclamo)
+}
+
+// LiberarReclamoEmergenciaPanel delega en mensajeria.liberarReclamoEmergencia.
+// La version_esperada va como query. Sin cuerpo de respuesta: 204. Ruta protegida.
+func (h *Handlers) LiberarReclamoEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "liberar")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	rid, err := uuidDe(r.PathValue("rid"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: liberar: id de reclamo invalido"))
+		return
+	}
+	version, err := versionEsperadaDe(r)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.LiberarReclamoEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, rid,
+		msgclient.LiberarReclamoEmergenciaParams{VersionEsperada: version}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TransferirEmergenciaPanel delega en mensajeria.transferirEmergencia. Devuelve
+// el reclamo resultante (201). Ruta protegida.
+func (h *Handlers) TransferirEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "transferir")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	var cuerpo msgclient.TransferirEmergenciaJSONRequestBody
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	reclamo, err := h.deps.Mensajeria.TransferirEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, reclamo)
+}
+
+// ResolverEmergenciaPanel delega en mensajeria.resolverEmergencia (nota
+// obligatoria). Devuelve el caso actualizado (200). Ruta protegida.
+func (h *Handlers) ResolverEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "resolver")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	var cuerpo msgclient.ResolverEmergenciaJSONRequestBody
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	caso, err := h.deps.Mensajeria.ResolverEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, caso)
+}
+
+// CerrarEmergenciaPanel delega en mensajeria.cerrarEmergencia (sin cuerpo).
+// Devuelve el caso cerrado (200). Ruta protegida.
+func (h *Handlers) CerrarEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "cerrar")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	caso, err := h.deps.Mensajeria.CerrarEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, caso)
+}
+
+// viajeYEmergenciaDe parsea los path values {id} (viaje) y {eid} (emergencia)
+// comunes a las acciones del panel. op nombra la acción para el mensaje de error.
+func viajeYEmergenciaDe(r *http.Request, op string) (msgclient.Id, msgclient.Id, error) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		return msgclient.Id{}, msgclient.Id{}, platformerrors.NewValidacion("bff: %s: id de viaje invalido", op)
+	}
+	eid, err := uuidDe(r.PathValue("eid"))
+	if err != nil {
+		return msgclient.Id{}, msgclient.Id{}, platformerrors.NewValidacion("bff: %s: id de emergencia invalido", op)
+	}
+	return id, eid, nil
+}
+
+// aEmergenciaCliente traduce la vista interna del caso (CasoEmergencia) a la
+// vista cliente (EmergenciaCliente): solo id, estado y fecha. Descarta origen,
+// actor y reclamo (solo-Interno, ADR 21 §6).
+func aEmergenciaCliente(c *msgclient.CasoEmergencia) bffclient.EmergenciaCliente {
+	if c == nil {
+		return bffclient.EmergenciaCliente{}
+	}
+	return bffclient.EmergenciaCliente{
+		Id:         c.Id,
+		Estado:     bffclient.EmergenciaClienteEstado(c.Estado),
+		ActivadaEn: c.ActivadaEn,
+	}
+}
+
+// aEmergenciasCliente arma la vista mínima de la lista: el indicador agregado
+// (true si hay al menos un caso en abierta o en_atencion, ADR 21 §6) y los casos
+// traducidos. mensajeria ya excluye las cerradas para el cliente.
+func aEmergenciasCliente(p *msgclient.PaginaEmergencias) bffclient.EmergenciasCliente {
+	out := bffclient.EmergenciasCliente{Casos: []bffclient.EmergenciaCliente{}}
+	if p == nil {
+		return out
+	}
+	for _, c := range p.Items {
+		cc := c
+		out.Casos = append(out.Casos, aEmergenciaCliente(&cc))
+		if c.Estado == msgclient.EstadoEmergenciaAbierta || c.Estado == msgclient.EstadoEmergenciaEnAtencion {
+			out.EmergenciaActiva = true
+		}
+	}
+	return out
 }
 
 // aSesionBff traduce la SesionEmitida de identidad a la Sesion de bff. Ambas
@@ -203,7 +600,18 @@ func escribirJSON(w http.ResponseWriter, status int, v any) {
 // bff.yaml y al status HTTP correspondiente. Reusa el mapeo de la plataforma
 // (Category.HTTPStatus y Category.String) en vez de duplicarlo. Un aguas-abajo
 // caido es degradado o roto, nunca no encontrado (bff.md (d)).
+//
+// El 403 (Prohibido) es el unico caso que no vive en la taxonomia de la
+// plataforma (que colapsa 403 en 401): el contrato de bff lo separa como
+// respuesta propia (E6-T3). Por eso se reconoce aqui, antes del mapeo general.
 func escribirError(w http.ResponseWriter, err error) {
+	if errores.EsProhibido(err) {
+		escribirJSON(w, http.StatusForbidden, bffclient.Error{
+			Codigo:  errores.CodigoProhibido,
+			Mensaje: err.Error(),
+		})
+		return
+	}
 	cat := platformerrors.AsCategory(err)
 	escribirJSON(w, cat.HTTPStatus(), bffclient.Error{
 		Codigo:  cat.String(),
