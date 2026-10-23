@@ -128,15 +128,15 @@ func New(_ Pools, d Deps) (*Module, error) {
 // (ADR 26 §5). Es normativo, no configurable por despliegue.
 const umbralFrescura = 15 * time.Second
 
-// Routes monta las rutas HTTP del modulo en el mux dado. Monta exactamente las
-// seis operaciones de la fase (a) de bff.yaml. Las rutas publicas (iniciar
-// sesion) van sin middleware; las protegidas pasan por el verificador local y la
-// consulta de tombstones (ADR 26). Una prueba compara las rutas montadas contra
-// los operationId del contrato.
+// Routes monta las rutas HTTP del modulo en el mux dado. Las rutas publicas
+// (iniciar sesion) van sin middleware; las protegidas pasan por el verificador
+// local y la consulta de tombstones (ADR 26). Una prueba compara las rutas
+// montadas contra los operationId del contrato.
 //
-// NO monta /api/v1/panel (no existe en el contrato, brecha reportada),
-// /tracking, /panico ni ninguna ruta de la fase (b) (catalogos, reportes,
-// mensajeria): sus puertos y superficie no existen todavia en la version fijada.
+// El carril interno de emergencia vive bajo /api/v1/panel (E7/tracer.17): la
+// misma ruta .../emergencias de /api/v1/viajes ya la ocupa el portal cliente, y
+// un ServeMux no admite dos handlers para el mismo patrón, así que el panel usa
+// su propio prefijo. No monta /tracking ni /panico (fuera de la version fijada).
 func (m *Module) Routes(mux *http.ServeMux) {
 	// Rutas publicas: bff no valida credenciales, solo reenvia a identidad.
 	mux.HandleFunc("POST /api/v1/sesion", m.handlers.IniciarSesion)
@@ -163,6 +163,16 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaCliente)))
+
+	// Carril interno de emergencia (panel de Reacción, E7/tracer.17): listar con
+	// vista completa y las cinco acciones de atención. mensajeria autoriza por
+	// claims; bff propaga el Bearer.
+	mux.Handle("GET /api/v1/panel/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasPanel)))
+	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/reclamos", protegido(http.HandlerFunc(m.handlers.ReclamarEmergenciaPanel)))
+	mux.Handle("DELETE /api/v1/panel/viajes/{id}/emergencias/{eid}/reclamos/{rid}", protegido(http.HandlerFunc(m.handlers.LiberarReclamoEmergenciaPanel)))
+	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/transferencias", protegido(http.HandlerFunc(m.handlers.TransferirEmergenciaPanel)))
+	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/resolucion", protegido(http.HandlerFunc(m.handlers.ResolverEmergenciaPanel)))
+	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/cierre", protegido(http.HandlerFunc(m.handlers.CerrarEmergenciaPanel)))
 }
 
 // Workers devuelve los workers embebidos del modulo (ADR 29 §6). bff tiene uno:

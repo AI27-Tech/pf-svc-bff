@@ -21,8 +21,8 @@ type IdentidadPort = agregacion.IdentidadPort
 // obtener detalle. Sin transiciones internas ni asignacion (bff.md (f)).
 type OperacionPort = agregacion.OperacionPort
 
-// MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia
-// (E7/tracer.17). Primera arista bff→mensajeria; propaga el token del usuario.
+// MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia y el
+// panel interno de atención (E7/tracer.17). Propaga el token del usuario.
 type MensajeriaPort = agregacion.MensajeriaPort
 
 // Presupuestos de latencia por dependencia (bff.md (i)): el agregador no degrada

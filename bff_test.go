@@ -60,7 +60,9 @@ func TestRutasMontadasContraContrato(t *testing.T) {
 }
 
 // TestRutaNoDeContratoNoMontada verifica que una ruta de fase (b) o fuera del
-// contrato (p. ej. /api/v1/panel, brecha reportada) NO esta montada.
+// contrato NO esta montada. El prefijo /api/v1/panel SÍ existe ahora (carril
+// interno de emergencia, E7), pero /api/v1/panel a secas no resuelve ningun
+// patron: el panel solo monta subrutas .../viajes/{id}/emergencias/...
 func TestRutaNoDeContratoNoMontada(t *testing.T) {
 	mod, _ := bff.New(bff.Pools{}, bff.Deps{
 		Verificador: verificadorSiempreFalla{},
@@ -69,7 +71,7 @@ func TestRutaNoDeContratoNoMontada(t *testing.T) {
 	mod.Routes(mux)
 
 	noDeberian := []struct{ metodo, ruta string }{
-		{http.MethodGet, "/api/v1/panel"},              // brecha reportada: no existe en el contrato
+		{http.MethodGet, "/api/v1/panel"},              // prefijo sin subruta: nada que montar
 		{http.MethodGet, "/api/v1/viajes/x/tracking"},  // V2
 		{http.MethodPost, "/api/v1/panico"},            // V2
 		{http.MethodGet, "/api/v1/catalogos/clientes"}, // fase (b)

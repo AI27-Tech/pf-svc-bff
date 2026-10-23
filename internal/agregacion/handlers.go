@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
@@ -336,6 +337,164 @@ func (h *Handlers) AgregarNotaEmergenciaCliente(w http.ResponseWriter, r *http.R
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
+}
+
+// --- Atención interna del caso (panel de Reacción, E7/tracer.17) -----------
+// El panel interno (Reacción, supervisor, coordinador) lista y atiende el caso.
+// bff propaga el Bearer y reenvía a mensajeria, que autoriza por los claims
+// (PuedeAtenderEmergencia, ADR 21 §6) y proyecta la vista interna completa. A
+// diferencia del portal cliente, estos handlers NO traducen la respuesta: la
+// vista interna es la del contrato de mensajeria sin recortar. El contrato de
+// bff solo define la vista cliente; estas rutas reenvían tipos de mensajeria.
+
+// versionEsperadaDe lee el query param version_esperada (concurrencia optimista
+// del reclamo). Ausente o vacío = 0 ("nunca reclamado"); mal formado = error.
+func versionEsperadaDe(r *http.Request) (msgclient.VersionReclamo, error) {
+	s := r.URL.Query().Get("version_esperada")
+	if s == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, platformerrors.NewValidacion("bff: version_esperada invalida: %v", err)
+	}
+	return v, nil
+}
+
+// ListarEmergenciasPanel delega en mensajeria.listarEmergencias y reenvía la
+// vista interna completa (origen, actor, reclamo). mensajeria proyecta según la
+// audiencia del token. Ruta protegida del panel interno.
+func (h *Handlers) ListarEmergenciasPanel(w http.ResponseWriter, r *http.Request) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: listarEmergenciasPanel: id invalido"))
+		return
+	}
+	pagina, err := h.deps.Mensajeria.ListarEmergencias(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, pagina)
+}
+
+// ReclamarEmergenciaPanel delega en mensajeria.reclamarEmergencia. El operador
+// del token toma el caso; devuelve el reclamo (201). Ruta protegida.
+func (h *Handlers) ReclamarEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "reclamar")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	var cuerpo msgclient.ReclamarEmergenciaJSONRequestBody
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	reclamo, err := h.deps.Mensajeria.ReclamarEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, reclamo)
+}
+
+// LiberarReclamoEmergenciaPanel delega en mensajeria.liberarReclamoEmergencia.
+// La version_esperada va como query. Sin cuerpo de respuesta: 204. Ruta protegida.
+func (h *Handlers) LiberarReclamoEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "liberar")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	rid, err := uuidDe(r.PathValue("rid"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: liberar: id de reclamo invalido"))
+		return
+	}
+	version, err := versionEsperadaDe(r)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.LiberarReclamoEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, rid,
+		msgclient.LiberarReclamoEmergenciaParams{VersionEsperada: version}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TransferirEmergenciaPanel delega en mensajeria.transferirEmergencia. Devuelve
+// el reclamo resultante (201). Ruta protegida.
+func (h *Handlers) TransferirEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "transferir")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	var cuerpo msgclient.TransferirEmergenciaJSONRequestBody
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	reclamo, err := h.deps.Mensajeria.TransferirEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, reclamo)
+}
+
+// ResolverEmergenciaPanel delega en mensajeria.resolverEmergencia (nota
+// obligatoria). Devuelve el caso actualizado (200). Ruta protegida.
+func (h *Handlers) ResolverEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "resolver")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	var cuerpo msgclient.ResolverEmergenciaJSONRequestBody
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	caso, err := h.deps.Mensajeria.ResolverEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, caso)
+}
+
+// CerrarEmergenciaPanel delega en mensajeria.cerrarEmergencia (sin cuerpo).
+// Devuelve el caso cerrado (200). Ruta protegida.
+func (h *Handlers) CerrarEmergenciaPanel(w http.ResponseWriter, r *http.Request) {
+	id, eid, err := viajeYEmergenciaDe(r, "cerrar")
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	caso, err := h.deps.Mensajeria.CerrarEmergencia(r.Context(), r.Header.Get("Authorization"), id, eid)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, caso)
+}
+
+// viajeYEmergenciaDe parsea los path values {id} (viaje) y {eid} (emergencia)
+// comunes a las acciones del panel. op nombra la acción para el mensaje de error.
+func viajeYEmergenciaDe(r *http.Request, op string) (msgclient.Id, msgclient.Id, error) {
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		return msgclient.Id{}, msgclient.Id{}, platformerrors.NewValidacion("bff: %s: id de viaje invalido", op)
+	}
+	eid, err := uuidDe(r.PathValue("eid"))
+	if err != nil {
+		return msgclient.Id{}, msgclient.Id{}, platformerrors.NewValidacion("bff: %s: id de emergencia invalido", op)
+	}
+	return id, eid, nil
 }
 
 // aEmergenciaCliente traduce la vista interna del caso (CasoEmergencia) a la

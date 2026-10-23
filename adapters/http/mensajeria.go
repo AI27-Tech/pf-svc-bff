@@ -99,3 +99,89 @@ func (a *MensajeriaHTTP) AgregarNotaEmergencia(ctx context.Context, bearer strin
 	}
 	return nil
 }
+
+// --- Atención interna del caso (panel de Reacción, E7/tracer.17) -----------
+// Cinco acciones de escritura del operador interno. Misma mecánica que arriba:
+// presupuesto, propagación del Bearer y traducción de error de transporte/status.
+// mensajeria autoriza por los claims (ADR 21 §6).
+
+// ReclamarEmergencia reenvía a mensajeria.reclamarEmergencia. Devuelve el reclamo
+// abierto (201); un 409 lo traduce DeStatus a conflicto de versión.
+func (a *MensajeriaHTTP) ReclamarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.ReclamarEmergenciaJSONRequestBody) (*msgclient.Reclamo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ReclamarEmergenciaWithResponse(ctx, viajeID, emergenciaID, body, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ReclamarEmergencia", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("ReclamarEmergencia", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// LiberarReclamoEmergencia reenvía a mensajeria.liberarReclamoEmergencia. La
+// version_esperada viaja como query (params); la respuesta no lleva cuerpo, así
+// que el éxito es un 2xx.
+func (a *MensajeriaHTTP) LiberarReclamoEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID, reclamoID msgclient.Id, params msgclient.LiberarReclamoEmergenciaParams) error {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.LiberarReclamoEmergenciaWithResponse(ctx, viajeID, emergenciaID, reclamoID, &params, conBearer(bearer))
+	if err != nil {
+		return errores.DeTransporte("LiberarReclamoEmergencia", err)
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return errores.DeStatus("LiberarReclamoEmergencia", resp.StatusCode())
+	}
+	return nil
+}
+
+// TransferirEmergencia reenvía a mensajeria.transferirEmergencia. Devuelve el
+// reclamo resultante (201).
+func (a *MensajeriaHTTP) TransferirEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.TransferirEmergenciaJSONRequestBody) (*msgclient.Reclamo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.TransferirEmergenciaWithResponse(ctx, viajeID, emergenciaID, body, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("TransferirEmergencia", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("TransferirEmergencia", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// ResolverEmergencia reenvía a mensajeria.resolverEmergencia. Devuelve el caso
+// actualizado (200).
+func (a *MensajeriaHTTP) ResolverEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.ResolverEmergenciaJSONRequestBody) (*msgclient.CasoEmergencia, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ResolverEmergenciaWithResponse(ctx, viajeID, emergenciaID, body, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ResolverEmergencia", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ResolverEmergencia", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// CerrarEmergencia reenvía a mensajeria.cerrarEmergencia (sin cuerpo). Devuelve
+// el caso cerrado (200).
+func (a *MensajeriaHTTP) CerrarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CerrarEmergenciaWithResponse(ctx, viajeID, emergenciaID, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("CerrarEmergencia", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("CerrarEmergencia", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
