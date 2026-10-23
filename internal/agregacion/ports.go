@@ -76,6 +76,26 @@ type MensajeriaPort interface {
 	ActivarEmergencia(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.ActivarEmergenciaEntrada) (*msgclient.CasoEmergencia, error)
 	// AgregarNotaEmergencia agrega una nota al caso (append-only).
 	AgregarNotaEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.NotaEmergenciaEntrada) error
+
+	// --- Atención interna del caso (panel de Reacción, E7/tracer.17) ---
+	// Las cinco son acciones de escritura del operador interno. mensajeria
+	// autoriza por los claims (PuedeAtenderEmergencia, ADR 21 §6); bff propaga
+	// el Bearer y reenvía, no valida el rol.
+
+	// ReclamarEmergencia toma el caso para el operador del token (concurrencia
+	// optimista por version_esperada). Devuelve el reclamo abierto.
+	ReclamarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.ReclamarEmergenciaJSONRequestBody) (*msgclient.Reclamo, error)
+	// LiberarReclamoEmergencia suelta el reclamo (version_esperada va como query).
+	// La respuesta del servicio no lleva cuerpo; basta el éxito.
+	LiberarReclamoEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID, reclamoID msgclient.Id, params msgclient.LiberarReclamoEmergenciaParams) error
+	// TransferirEmergencia pasa el reclamo a otro responsable. Devuelve el reclamo
+	// resultante.
+	TransferirEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.TransferirEmergenciaJSONRequestBody) (*msgclient.Reclamo, error)
+	// ResolverEmergencia resuelve el caso con una nota obligatoria. Devuelve el
+	// caso actualizado.
+	ResolverEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.ResolverEmergenciaJSONRequestBody) (*msgclient.CasoEmergencia, error)
+	// CerrarEmergencia cierra el caso (sin cuerpo). Devuelve el caso cerrado.
+	CerrarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error)
 }
 
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New

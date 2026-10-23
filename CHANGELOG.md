@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 2026:10:23 — Carril interno de emergencia: panel de atención (E7/tracer.17)
+
+**Resumen:** Se agrega el lado interno de emergencia al `bff`, bajo el prefijo nuevo `/api/v1/panel`. Reacción (y supervisor/coordinador con alcance) ahora puede listar los casos de un viaje con la vista interna completa y ATENDERLOS: reclamar, liberar el reclamo, transferir, resolver y cerrar. Completa el punta-a-punta de E7: el carril cliente (activar/nota/listar) ya existía; este es el carril del operador que atiende.
+
+**Para quién:** para el operador interno que opera la emergencia desde el panel. `bff` propaga el Bearer del usuario y reenvía a `mensajeria`, que autoriza por los claims (`PuedeAtenderEmergencia`, ADR 21 §6) y proyecta la vista interna completa (origen, actor real, reclamo). El cliente no alcanza estas rutas: su token es de audiencia cliente y `mensajeria` responde según audiencia.
+
+**Cambios:**
+- `internal/agregacion/ports.go`: `MensajeriaPort` se amplía con `ReclamarEmergencia`, `LiberarReclamoEmergencia`, `TransferirEmergencia`, `ResolverEmergencia` y `CerrarEmergencia`. Cada una recibe el `bearer` como las tres existentes.
+- `adapters/http/mensajeria.go`: implementación de los cinco métodos sobre el cliente generado de `mensajeria` (tracer.17), reusando `conBearer`, el presupuesto y la traducción de errores. `LiberarReclamoEmergencia` valida éxito por status 2xx (la respuesta no lleva cuerpo).
+- `internal/agregacion/handlers.go`: handlers del panel (`ListarEmergenciasPanel` + las cinco acciones). A diferencia del portal cliente, NO traducen la respuesta: la vista interna es la del contrato de `mensajeria` sin recortar (el contrato de `bff` solo define la vista cliente). `versionEsperadaDe` lee el query `version_esperada` para liberar; `viajeYEmergenciaDe` parsea los path values comunes.
+- `bff.go`: `Routes()` monta las seis rutas del panel bajo `/api/v1/panel/viajes/{id}/emergencias...`. El prefijo nuevo existe porque la ruta `.../emergencias` de `/api/v1/viajes` ya la ocupa el portal cliente y un `ServeMux` no admite dos handlers para el mismo patrón.
+
+**Pruebas:**
+- `bff_test.go`: `TestRutaNoDeContratoNoMontada` se ajusta: `/api/v1/panel` a secas sigue sin resolver patrón (el panel solo monta subrutas).
+- `internal/agregacion/emergencia_test.go`: `fakeMensajeria` extendido con los cinco métodos; `peticionPanel` (claims de audiencia interna, path value `rid` y query). Casos: listar reenvía la vista completa con origen; reclamar propaga `version_esperada` y devuelve el reclamo; liberar lee `version_esperada` del query y responde 204; `version_esperada` no numérica es 400 y no llega al puerto; resolver propaga la nota; cerrar devuelve el caso cerrado.
+
+**Verificado:** `gofmt -l .` limpio, `go build ./...`, `go vet ./...`, `go test ./...` en verde y `arch-test: OK`.
+
+**Decisiones:** (1) El panel propaga el token y deja autorizar a `mensajeria`; `bff` no valida rol, igual que el resto de sus reenvíos. (2) La vista interna reenvía tipos de `mensajeria` sin traductor, porque la vista interna es la completa y no hay recorte que hacer (los traductores cliente existen solo para quitar campos).
+
+**Pendiente (no bloqueante):** unificar el passthrough del token en TODAS las aristas del `bff` (hoy solo `mensajeria` lo propaga; `operacion`/`identidad` siguen con doer nil).
+
 ## 2026:10:22 — Descarga del expediente de un viaje (AI27-80 / E6-T3)
 
 **Resumen:** Se implementa `GET /api/v1/viajes/{id}/descarga` (`descargarViaje`), la descarga del expediente de UN viaje para usuarios internos (DEC-022 #7). `bff` compone el expediente —ficha técnica + histórico de bitácora + auditoría relevante— leyendo SIEMPRE de `operacion` (la fuente exacta y actual), NUNCA de `reportes` (analítico y eventualmente consistente). Tras componer con éxito, le pide a `operacion` que DEJE el rastro de auditoría de la descarga vía `registrarDescargaViaje`: el rastro lo escribe `operacion` en su transacción, no `bff` (que no tiene base de datos).
