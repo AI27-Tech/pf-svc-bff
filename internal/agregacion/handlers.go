@@ -1,19 +1,29 @@
 package agregacion
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
 	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
+	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
+	"github.com/AI27-Tech/pf-svc-bff/internal/descarga"
+	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tracking"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
 )
+
+// ahora es la fuente de tiempo para el `generado_en` del expediente de descarga.
+// Variable de paquete para que la prueba pueda sustituirla por un reloj fijo; en
+// produccion es la hora real en UTC.
+var ahora = func() time.Time { return time.Now().UTC() }
 
 // Handlers implementa las seis operaciones de la fase (a) de bff.yaml. Cada
 // handler usa SOLO tipos generados de pf-pkg-contracts para su cuerpo de
@@ -142,6 +152,119 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 	// Composicion pura de hitos (E2-T2/E2-T3). Traduce estado tecnico -> hito y
 	// colapsa el bucle multi-parada; el cliente nunca ve el token tecnico.
 	escribirJSON(w, http.StatusOK, tracking.Componer(*detalle))
+}
+
+// --- Descarga del expediente de UN viaje (E6-T3 / E6-HU-026, DEC-022 #7) ----
+
+// DescargarViaje compone el expediente de descarga de UN viaje leyendo de
+// operacion (la fuente exacta y actual), NUNCA de reportes. Solo usuarios
+// internos (DEC-022 #7): un cliente recibe 403 ANTES de componer dato alguno. El
+// alcance fino lo resuelve operacion; su 403/404 se propaga tal cual. Tras
+// componer con exito, pide a operacion que DEJE el rastro de auditoria de la
+// descarga (exactamente una vez por descarga exitosa); bff no escribe auditoria
+// (no tiene base de datos). Ruta protegida.
+//
+// Exclusiones duras (DEC-009/DEC-039): el expediente no contiene cuenta espejo
+// ni clave_amago (no existen en el origen ni en el contrato). Es descarga de UN
+// viaje; no hay ruta de lote (V2, DEC-023).
+func (h *Handlers) DescargarViaje(w http.ResponseWriter, r *http.Request) {
+	// 1. Autorizacion por audiencia ANTES de componer nada: la descarga es solo
+	//    para usuarios internos (DEC-022 #7). Un cliente -> 403 (Prohibido).
+	claims := autorizacion.ClaimsDe(r.Context())
+	if claims == nil {
+		escribirError(w, platformerrors.NewNoAutorizado("bff: descargarViaje: sin claims"))
+		return
+	}
+	if claims.Audiencia != auth.AudienciaInterno {
+		escribirError(w, errores.NewProhibido("bff: descargarViaje: la descarga del expediente es solo para usuarios internos"))
+		return
+	}
+
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: descargarViaje: id invalido"))
+		return
+	}
+
+	// 2. Composicion: ficha + bitacora + auditoria, leyendo de operacion. El
+	//    alcance fino lo resuelve operacion: cualquier 403 (fuera de alcance) o
+	//    404 (viaje inexistente) se propaga tal cual, sin componer el resto.
+	detalle, err := h.deps.Operacion.ObtenerViaje(r.Context(), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	bitacora, err := h.bitacoraCompleta(r.Context(), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	auditoria, err := h.auditoriaCompleta(r.Context(), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+
+	expediente := descarga.Componer(*detalle, bitacora, auditoria, ahora())
+
+	// 3. Rastro de auditoria: tras componer con exito, operacion deja el registro
+	//    de la descarga (actor, viaje, momento; E1-T7) en SU transaccion.
+	//    Exactamente una vez por descarga exitosa. Si operacion falla al
+	//    registrar, la descarga no se entrega: no se sirve un expediente cuya
+	//    descarga no quedo auditada.
+	if _, err := h.deps.Operacion.RegistrarDescargaViaje(r.Context(), id); err != nil {
+		escribirError(w, err)
+		return
+	}
+
+	escribirJSON(w, http.StatusOK, expediente)
+}
+
+// bitacoraCompleta agota la paginacion de la bitacora del viaje: pide pagina a
+// pagina hasta que operacion no devuelve cursor siguiente. El expediente lleva
+// el historico completo, no una pagina (E6-T3). Nunca devuelve nil.
+func (h *Handlers) bitacoraCompleta(ctx context.Context, id opclient.Id) ([]opclient.EntradaBitacora, error) {
+	todas := []opclient.EntradaBitacora{}
+	var cursor *opclient.Cursor
+	for {
+		pagina, err := h.deps.Operacion.ListarBitacora(ctx, id, opclient.ListarBitacoraParams{Cursor: cursor})
+		if err != nil {
+			return nil, err
+		}
+		if pagina == nil {
+			break
+		}
+		todas = append(todas, pagina.Items...)
+		if pagina.CursorSiguiente == nil || *pagina.CursorSiguiente == "" {
+			break
+		}
+		sig := opclient.Cursor(*pagina.CursorSiguiente)
+		cursor = &sig
+	}
+	return todas, nil
+}
+
+// auditoriaCompleta agota la paginacion de la auditoria del viaje, igual que
+// bitacoraCompleta. Nunca devuelve nil.
+func (h *Handlers) auditoriaCompleta(ctx context.Context, id opclient.Id) ([]opclient.RegistroAuditoria, error) {
+	todos := []opclient.RegistroAuditoria{}
+	var cursor *opclient.Cursor
+	for {
+		pagina, err := h.deps.Operacion.ConsultarAuditoria(ctx, id, opclient.ConsultarAuditoriaParams{Cursor: cursor})
+		if err != nil {
+			return nil, err
+		}
+		if pagina == nil {
+			break
+		}
+		todos = append(todos, pagina.Items...)
+		if pagina.CursorSiguiente == nil || *pagina.CursorSiguiente == "" {
+			break
+		}
+		sig := opclient.Cursor(*pagina.CursorSiguiente)
+		cursor = &sig
+	}
+	return todos, nil
 }
 
 // --- Emergencia del portal cliente (E7/tracer.17, ADR 21 §6) --------------
@@ -307,7 +430,18 @@ func escribirJSON(w http.ResponseWriter, status int, v any) {
 // bff.yaml y al status HTTP correspondiente. Reusa el mapeo de la plataforma
 // (Category.HTTPStatus y Category.String) en vez de duplicarlo. Un aguas-abajo
 // caido es degradado o roto, nunca no encontrado (bff.md (d)).
+//
+// El 403 (Prohibido) es el unico caso que no vive en la taxonomia de la
+// plataforma (que colapsa 403 en 401): el contrato de bff lo separa como
+// respuesta propia (E6-T3). Por eso se reconoce aqui, antes del mapeo general.
 func escribirError(w http.ResponseWriter, err error) {
+	if errores.EsProhibido(err) {
+		escribirJSON(w, http.StatusForbidden, bffclient.Error{
+			Codigo:  errores.CodigoProhibido,
+			Mensaje: err.Error(),
+		})
+		return
+	}
 	cat := platformerrors.AsCategory(err)
 	escribirJSON(w, cat.HTTPStatus(), bffclient.Error{
 		Codigo:  cat.String(),

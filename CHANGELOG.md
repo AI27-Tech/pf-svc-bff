@@ -1,5 +1,38 @@
 # CHANGELOG
 
+## 2026:10:22 — Descarga del expediente de un viaje (AI27-80 / E6-T3)
+
+**Resumen:** Se implementa `GET /api/v1/viajes/{id}/descarga` (`descargarViaje`), la descarga del expediente de UN viaje para usuarios internos (DEC-022 #7). `bff` compone el expediente —ficha técnica + histórico de bitácora + auditoría relevante— leyendo SIEMPRE de `operacion` (la fuente exacta y actual), NUNCA de `reportes` (analítico y eventualmente consistente). Tras componer con éxito, le pide a `operacion` que DEJE el rastro de auditoría de la descarga vía `registrarDescargaViaje`: el rastro lo escribe `operacion` en su transacción, no `bff` (que no tiene base de datos).
+
+**Para quién:** para el usuario interno (operativo, supervisor, administrador…) que exporta el expediente de un viaje desde el panel. El cliente no puede: recibe `403` antes de que se componga dato alguno. El alcance fino (qué viajes ve cada operativo) lo resuelve `operacion`; `bff` propaga su `403`/`404` tal cual.
+
+**Cambios:**
+- `go.mod`/`go.sum`: pin de `api-client-go` en `v0.1.0-tracer.17` (reutilizado de AI27-59). Trae `bff.DescargaViaje`/`FichaTecnicaDescarga`/`EntradaBitacoraDescarga`/`RegistroAuditoriaDescarga` y, en `operacion`, `listarBitacora`, `consultarAuditoria` y `registrarDescargaViaje`.
+- `internal/agregacion/ports.go`: `OperacionPort` se amplía con `ListarBitacora`, `ConsultarAuditoria` (ambas por página, con cursor opaco) y `RegistrarDescargaViaje` (sin cuerpo: el actor sale de los claims aguas abajo). `ObtenerViaje` ya existía para la ficha.
+- `adapters/http/operacion.go`: adaptador HTTP de los tres métodos nuevos sobre el cliente generado, con el presupuesto de `operacion` y la traducción de errores a la taxonomía de la plataforma.
+- `internal/descarga/descarga.go` (nuevo): `Componer` es una función PURA que arma `bff.DescargaViaje` a partir del detalle del viaje, la bitácora y la auditoría ya leídas. Solo serializa campos contratados; las listas nunca son `nil`.
+- `internal/agregacion/handlers.go`: handler `DescargarViaje`. Verifica audiencia INTERNA con `ClaimsDe(ctx).Audiencia` ANTES de componer nada (cliente → `403`); agota la paginación de bitácora y auditoría; compone; y llama a `RegistrarDescargaViaje` EXACTAMENTE una vez por descarga exitosa. Si `operacion` falla al dejar el rastro, la descarga no se entrega. Introduce el PRIMER check de audiencia en un handler de `bff`.
+- `internal/errores/errores.go`: nuevo error `Prohibido` (403) de `bff` con `NewProhibido`/`EsProhibido`/`CodigoProhibido`. La taxonomía de la plataforma colapsa 403 en 401 (`CategoryNoAutorizado`), pero el contrato de `bff` separa `Prohibido` (403) de `NoAutorizado` (401); `DeStatus(403)` ahora devuelve `Prohibido` y `escribirError` lo mapea a 403.
+- `bff.go`: `Routes()` monta `GET /api/v1/viajes/{id}/descarga` envuelta en `protegido`. NO se monta ninguna ruta de lote: la exportación de listados es V2 (DEC-023).
+- Exclusiones duras (DEC-009/DEC-039): el expediente NO contiene cuenta espejo ni `clave_amago`. No existen en el modelo V1 de `operacion` ni en el contrato de la descarga, así que no hay nada que filtrar; una prueba a nivel HTTP afirma que el cuerpo nunca los contiene.
+
+**Pruebas:**
+- `bff_test.go`: `descargarViaje` añadida a la lista de rutas contratadas (`operacionesFaseA`); se verifica además que no existe ruta de lote (`POST /api/v1/descargas`, `POST /api/v1/viajes/descargas`).
+- `internal/agregacion/descarga_test.go`: rechazo por audiencia (cliente → `403`, sin tocar `operacion` ni dejar rastro); `401` sin claims; `403` de alcance y `404` de viaje inexistente propagados desde `operacion`; descarga exitosa que compone el expediente y deja el rastro EXACTAMENTE una vez (verificado en el fake); agotamiento de la paginación de bitácora y auditoría; fallo al registrar → no se entrega el expediente; y la descarga no contiene datos excluidos.
+- `internal/descarga/descarga_test.go`: `Componer` puro mapea ficha/bitácora/auditoría, mantiene las listas no-`nil` y nunca serializa datos excluidos.
+
+**Verificado:** `go build ./...`, `go vet ./...` y `go test ./...` en verde. `bff` no tiene base de datos propia: el rastro de auditoría de la descarga lo escribe `operacion`.
+
+**Nota / brecha reportada:** el contrato de `operacion` (`operacion.yaml`) declara `consultarAuditoria` (`GET /api/v1/viajes/{id}/auditoria`) y el cliente generado lo trae, pero el servidor Go de `pf-svc-operacion` todavía NO monta esa ruta (su módulo `auditoria` es solo de escritura por interceptor). `bff` compone contra el contrato (correcto); hasta que `operacion` monte la lectura de auditoría, esa sección del expediente llegará vacía o `operacion` responderá `404`, que `bff` propaga. Es trabajo de `operacion`, no de `bff`.
+
+**Archivos modificados:**
+- `go.mod`, `go.sum`
+- `internal/agregacion/ports.go`, `internal/agregacion/handlers.go`, `internal/agregacion/handlers_test.go`, `internal/agregacion/descarga_test.go` (nuevo)
+- `internal/descarga/descarga.go` (nuevo), `internal/descarga/descarga_test.go` (nuevo)
+- `internal/errores/errores.go`
+- `adapters/http/operacion.go`
+- `bff.go`, `bff_test.go`
+
 ## 2026:10:22 18:20
 
 **Resumen:** Se implementa la vista curada de incidencias para el cliente (AI27-59 / E2-T3) en `GET /api/v1/viajes/{id}` (`seguirViaje`). `bff` traduce el tipo interno de cada incidencia activa a una de las cinco categorías del cliente, sin filtrar nunca el término interno (DEC-006). Se cierra así la brecha de contrato que el scaffold dejaba documentada: `operacion` ya expone `incidencias_activas` en `ViajeDetalle` (tracer.16), y `bff` deja de devolver la lista de incidencias vacía a propósito.

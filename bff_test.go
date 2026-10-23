@@ -30,6 +30,7 @@ var operacionesFaseA = []rutaContrato{
 	{"crearViaje", http.MethodPost, "/api/v1/viajes", true},
 	{"listarViajes", http.MethodGet, "/api/v1/viajes", true},
 	{"seguirViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000", true},
+	{"descargarViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/descarga", true},
 }
 
 // TestRutasMontadasContraContrato verifica que New().Routes monta exactamente
@@ -72,6 +73,13 @@ func TestRutaNoDeContratoNoMontada(t *testing.T) {
 		{http.MethodGet, "/api/v1/viajes/x/tracking"},  // V2
 		{http.MethodPost, "/api/v1/panico"},            // V2
 		{http.MethodGet, "/api/v1/catalogos/clientes"}, // fase (b)
+		// La descarga es de UN viaje; la exportacion de listados/lote es V2
+		// (DEC-023), por eso NO existe una ruta de lote con patron propio. Nota:
+		// no se prueba "/api/v1/viajes/descarga" porque el mux lo resuelve como
+		// el patron de UN viaje ({id} = "descarga"), no como una ruta distinta;
+		// probar eso afirmaria algo sobre net/http, no sobre el contrato de bff.
+		{http.MethodPost, "/api/v1/descargas"},        // lote global (no existe)
+		{http.MethodPost, "/api/v1/viajes/descargas"}, // lote por coleccion (no existe)
 	}
 	for _, r := range noDeberian {
 		req := httptest.NewRequest(r.metodo, r.ruta, nil)

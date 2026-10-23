@@ -67,7 +67,8 @@ func (a *OperacionHTTP) ListarViajes(ctx context.Context, params opclient.Listar
 	return resp.JSON200, nil
 }
 
-// ObtenerViaje lee el detalle para la composicion de hitos (ADR 27).
+// ObtenerViaje lee el detalle para la composicion de hitos (ADR 27) y para la
+// ficha tecnica del expediente de descarga (E6-T3).
 func (a *OperacionHTTP) ObtenerViaje(ctx context.Context, id opclient.Id) (*opclient.ViajeDetalle, error) {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
@@ -78,6 +79,57 @@ func (a *OperacionHTTP) ObtenerViaje(ctx context.Context, id opclient.Id) (*opcl
 	}
 	if resp.JSON200 == nil {
 		return nil, errores.DeStatus("ObtenerViaje", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ListarBitacora lee UNA pagina del historico de bitacora del viaje (E6-T3). La
+// composicion de la descarga la invoca en bucle hasta agotar el cursor; cada
+// pagina respeta el presupuesto de operacion.
+func (a *OperacionHTTP) ListarBitacora(ctx context.Context, id opclient.Id, params opclient.ListarBitacoraParams) (*opclient.PaginaBitacora, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarBitacoraWithResponse(ctx, id, &params)
+	if err != nil {
+		return nil, errores.DeTransporte("ListarBitacora", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarBitacora", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ConsultarAuditoria lee UNA pagina de la auditoria relevante del viaje (E6-T3).
+// La composicion la invoca en bucle hasta agotar el cursor.
+func (a *OperacionHTTP) ConsultarAuditoria(ctx context.Context, id opclient.Id, params opclient.ConsultarAuditoriaParams) (*opclient.PaginaAuditoria, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ConsultarAuditoriaWithResponse(ctx, id, &params)
+	if err != nil {
+		return nil, errores.DeTransporte("ConsultarAuditoria", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ConsultarAuditoria", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// RegistrarDescargaViaje pide a operacion que deje el rastro de auditoria de la
+// descarga (E1-T7). Sin cuerpo: el actor sale de los claims del token que el
+// adaptador propaga aguas abajo. operacion escribe el registro en su propia
+// transaccion (bff no tiene base de datos). Devuelve el Viaje descargado.
+func (a *OperacionHTTP) RegistrarDescargaViaje(ctx context.Context, id opclient.Id) (*opclient.Viaje, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.RegistrarDescargaViajeWithResponse(ctx, id)
+	if err != nil {
+		return nil, errores.DeTransporte("RegistrarDescargaViaje", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("RegistrarDescargaViaje", resp.StatusCode())
 	}
 	return resp.JSON200, nil
 }
