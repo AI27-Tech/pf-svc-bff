@@ -12,6 +12,7 @@ import (
 	"context"
 
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
+	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 )
 
@@ -47,9 +48,24 @@ type OperacionPort interface {
 	ObtenerViaje(ctx context.Context, id opclient.Id) (*opclient.ViajeDetalle, error)
 }
 
+// MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia
+// (E7/tracer.17). Primera arista bff→mensajeria. Los métodos reciben el Bearer
+// del usuario para propagarlo: mensajeria autoriza por los claims del token
+// (ADR 21 §6), así que el token debe viajar aguas abajo.
+type MensajeriaPort interface {
+	// ListarEmergencias lista los casos del viaje; mensajeria proyecta por
+	// audiencia (vista mínima para el cliente, ADR 21 §6).
+	ListarEmergencias(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.PaginaEmergencias, error)
+	// ActivarEmergencia activa un caso (idempotente por activacion_id).
+	ActivarEmergencia(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.ActivarEmergenciaEntrada) (*msgclient.CasoEmergencia, error)
+	// AgregarNotaEmergencia agrega una nota al caso (append-only).
+	AgregarNotaEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.NotaEmergenciaEntrada) error
+}
+
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New
 // los inyecta.
 type Deps struct {
-	Identidad IdentidadPort
-	Operacion OperacionPort
+	Identidad  IdentidadPort
+	Operacion  OperacionPort
+	Mensajeria MensajeriaPort
 }
