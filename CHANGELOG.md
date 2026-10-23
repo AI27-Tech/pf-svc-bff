@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 2026:10:22 18:20
+
+**Resumen:** Se implementa la vista curada de incidencias para el cliente (AI27-59 / E2-T3) en `GET /api/v1/viajes/{id}` (`seguirViaje`). `bff` traduce el tipo interno de cada incidencia activa a una de las cinco categorías del cliente, sin filtrar nunca el término interno (DEC-006). Se cierra así la brecha de contrato que el scaffold dejaba documentada: `operacion` ya expone `incidencias_activas` en `ViajeDetalle` (tracer.16), y `bff` deja de devolver la lista de incidencias vacía a propósito.
+
+**Para quién:** para el `cliente` que sigue su viaje desde el portal, que ahora ve la categoría curada + estado (`en_atencion`/`resuelta`) + marca de tiempo de cada incidencia abierta, sin exponer jamás el nombre técnico del catálogo operativo. Y para quien mantenga `bff`: el mapeo vive en un módulo puro y probado por enumeración del catálogo completo.
+
+**Cambios:**
+- `go.mod`/`go.sum`: pin de `api-client-go` de `v0.1.0-tracer.10` a `v0.1.0-tracer.16`. El salto es aditivo para lo que `bff` consume; trae `operacion.ViajeDetalle.incidencias_activas` (`[]IncidenciaActiva` con `tipo_interno`, `estado`, `abierta_en`) y confirma `bff.IncidenciaCurada` + `ViajeSeguimiento.incidencias`.
+- `internal/tracking/incidencias.go` (nuevo): módulo de mapeo PURO. Las cinco categorías EXACTAS como constantes (`Incidencia de seguridad`, `Accidente/percance`, `Falla mecánica/de equipo`, `Retraso/desvío en ruta`, `Pérdida de contacto`) y el mapa cerrado `tipo_interno → categoría` según `docs/propuestas/propuesta-clasificacion-estatus-v1.md` §3 (DEC-006). `Categoria` devuelve `(categoría, ok)` y nunca el término interno; `incidenciasCuradas` compone la lista del cliente.
+- `internal/tracking/tracking.go`: `Componer` ahora rellena `incidencias` a partir de `ViajeDetalle.incidencias_activas` (categoría mapeada + estado + marca de tiempo). Se eliminó el marcador `incidenciasPendientes()` del scaffold; su brecha quedó cerrada. `impacto_eta` queda `nil`: `operacion` no lo expone por incidencia en tracer.16 (no se inventa).
+- La incidencia aparece en cuanto el operador la marca, sin paso extra de "publicar al cliente" (DEC-021): es la misma lectura de `condicion_viaje` vía `operacion`. Al resolverse en `operacion`, sale de `incidencias_activas` y deja de verse en la siguiente lectura, sin acción adicional.
+- `internal/tracking/tracking_test.go`: pruebas del módulo puro. Enumera los 18 tipos internos y verifica que cada uno mapea a su categoría y que ninguno se filtra; caso de doble dimensión (`Sabotaje GPS` → una sola `Incidencia de seguridad`, nunca dos entradas ni el nombre técnico); traducción de estado `resuelta`; y la desaparición de la incidencia tras resolverse. Reemplaza al antiguo `TestComponerIncidenciasVacias` (brecha) por `TestComponerSinIncidenciasActivas`.
+- `internal/agregacion/handlers_test.go`: pruebas de comportamiento a nivel HTTP vía `httptest`. Para cada tipo interno, confirma que no aparece en el cuerpo JSON crudo del cliente; `Sabotaje GPS` da una sola entrada curada; y tras resolver, la siguiente lectura ya no trae la incidencia.
+
+**Verificado:** `go build ./...`, `go vet ./...` y `go test -count=1 ./...` en verde; `gofmt` limpio en los archivos tocados. Verificación de mutación: cambiar la categoría de `Sabotaje GPS` puso `TestSabotajeGpsEsUnaSolaIncidenciaDeSeguridad` en rojo; mutación revertida. Las pruebas afirman comportamiento, no implementación.
+
+**Archivos modificados:**
+- `go.mod`, `go.sum`
+- `internal/tracking/incidencias.go` (nuevo)
+- `internal/tracking/tracking.go`, `internal/tracking/tracking_test.go`
+- `internal/agregacion/handlers_test.go`
+
 ## 2026:10:19
 
 **Resumen:** Se sube el pin de `pf-pkg-contracts` de `v0.1.0-tracer.4` a `v0.1.0-tracer.10`. El salto es 100% aditivo en los clientes generados que bff consume (sin líneas eliminadas ni cambios de firma entre las dos olas), así que no toca ningún handler ni tipo existente. Desbloquea de hecho E6-T3 (AI27-80, Gonzalo): la operación `descargarViaje` y sus schemas (`DescargaViaje`, `FichaTecnicaDescarga`, …) entraron al contrato en tracer.11 y recién ahora están en el cliente Go que bff resuelve; sin este bump no se podían consumir. No monta la ruta de descarga (es trabajo de E6-T3, de otro dueño): solo pone el contrato al día.

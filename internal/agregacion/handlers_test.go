@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -249,6 +250,155 @@ func TestSeguirViajeComponeHitoYNoFiltraTokenTecnico(t *testing.T) {
 	}
 	if fakeOp.obtenerRecibio != id {
 		t.Errorf("se pidio el viaje %v, se esperaba %v", fakeOp.obtenerRecibio, id)
+	}
+}
+
+// tiposInternosDeIncidencia enumera TODOS los tipos internos del catalogo
+// mapeado (§3 de la propuesta de clasificacion). La prueba de no filtrado los
+// recorre uno por uno sobre el payload HTTP real del cliente.
+var tiposInternosDeIncidencia = []string{
+	"Asalto O Robo", "Intercepción de custodia", "Abandono de custodia",
+	"Rompimiento de Convoy", "Sabotaje GPS", "Retiro de GPS",
+	"Custodia da clave de amago incorrecta", "Custodia no da clave de amago",
+	"Extraviado", "Accidente Del Transporte Por Volcadura", "Percance Automovilístico",
+	"Falla Mecánica", "Falla mecánica de patrulla", "Falla en cámaras",
+	"Bloqueo Carretero", "Desvió de Ruta", "Custodia no responde al teléfono",
+	"Operador no responde al teléfono",
+}
+
+// TestSeguirViajeNoFiltraNingunTipoInternoEnElPayload es la prueba de no
+// divulgacion a nivel HTTP (E2-T3, DEC-006): para cada tipo interno, compone la
+// respuesta real del cliente y verifica que el tipo interno NO aparece en el
+// cuerpo JSON crudo, que llega una incidencia curada y que su categoria no es el
+// tipo interno. Enumera todos los tipos: si uno se filtrara, la prueba cae.
+func TestSeguirViajeNoFiltraNingunTipoInternoEnElPayload(t *testing.T) {
+	id := uuid.MustParse("66666666-6666-6666-6666-666666666666")
+	for _, tipo := range tiposInternosDeIncidencia {
+		t.Run(tipo, func(t *testing.T) {
+			fakeOp := &fakeOperacion{
+				detalle: &opclient.ViajeDetalle{
+					Viaje: opclient.Viaje{
+						Id:     id,
+						Estado: opclient.EstadoViaje(estados.EstadoEnTransito),
+						Origen: "CDMX",
+					},
+					CondicionesActivas: []opclient.CondicionAbierta{},
+					IncidenciasActivas: &[]opclient.IncidenciaActiva{{
+						Id:          uuid.New(),
+						TipoInterno: tipo,
+						Estado:      opclient.IncidenciaActivaEstadoEnAtencion,
+						AbiertaEn:   time.Now().UTC(),
+					}},
+				},
+			}
+			h := NewHandlers(Deps{Operacion: fakeOp})
+			rec := hacerPeticionConPathID(t, h.SeguirViaje, id.String(),
+				&auth.Claims{SesionID: "s", Subject: "u"})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
+			}
+			// El cuerpo JSON crudo NUNCA debe contener el tipo interno (DEC-006).
+			cuerpo := rec.Body.String()
+			if strings.Contains(cuerpo, tipo) {
+				t.Errorf("el tipo interno %q se filtro en el payload del cliente: %s", tipo, cuerpo)
+			}
+			var got bffclient.ViajeSeguimiento
+			decodificarCuerpo(t, rec, &got)
+			if len(got.Incidencias) != 1 {
+				t.Fatalf("se esperaba 1 incidencia curada, dio %d", len(got.Incidencias))
+			}
+			if got.Incidencias[0].Categoria == tipo {
+				t.Errorf("la categoria expuesta es el tipo interno %q", tipo)
+			}
+		})
+	}
+}
+
+// TestSeguirViajeSabotajeGpsUnaSolaEntrada verifica el caso de doble dimension a
+// nivel HTTP: "Sabotaje GPS" (incidencia + condicion de señal a la vez) se ve
+// como UNA sola "Incidencia de seguridad", nunca dos entradas ni el nombre
+// tecnico.
+func TestSeguirViajeSabotajeGpsUnaSolaEntrada(t *testing.T) {
+	id := uuid.MustParse("77777777-7777-7777-7777-777777777777")
+	fakeOp := &fakeOperacion{
+		detalle: &opclient.ViajeDetalle{
+			Viaje: opclient.Viaje{
+				Id:     id,
+				Estado: opclient.EstadoViaje(estados.EstadoEnTransito),
+				Origen: "CDMX",
+			},
+			// La misma realidad abre una condicion de señal ademas de la incidencia.
+			CondicionesActivas: []opclient.CondicionAbierta{
+				{Tipo: opclient.SINSENAL, AbiertaEn: time.Now().UTC()},
+			},
+			IncidenciasActivas: &[]opclient.IncidenciaActiva{{
+				Id:          uuid.New(),
+				TipoInterno: "Sabotaje GPS",
+				Estado:      opclient.IncidenciaActivaEstadoEnAtencion,
+				AbiertaEn:   time.Now().UTC(),
+			}},
+		},
+	}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+	rec := hacerPeticionConPathID(t, h.SeguirViaje, id.String(),
+		&auth.Claims{SesionID: "s", Subject: "u"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "Sabotaje GPS") {
+		t.Errorf("el nombre tecnico 'Sabotaje GPS' se filtro al cliente: %s", rec.Body.String())
+	}
+	var got bffclient.ViajeSeguimiento
+	decodificarCuerpo(t, rec, &got)
+	if len(got.Incidencias) != 1 {
+		t.Fatalf("Sabotaje GPS debe dar UNA sola incidencia, dio %d", len(got.Incidencias))
+	}
+	if got.Incidencias[0].Categoria != "Incidencia de seguridad" {
+		t.Errorf("categoria = %q, se esperaba 'Incidencia de seguridad'", got.Incidencias[0].Categoria)
+	}
+}
+
+// TestSeguirViajeIncidenciaResueltaDejaDeVerse verifica el flujo de resolucion a
+// nivel HTTP: tras resolver en operacion, la incidencia sale de
+// incidencias_activas y la siguiente lectura del cliente ya no la trae.
+func TestSeguirViajeIncidenciaResueltaDejaDeVerse(t *testing.T) {
+	id := uuid.MustParse("88888888-8888-8888-8888-888888888888")
+	base := func(incs *[]opclient.IncidenciaActiva) *fakeOperacion {
+		return &fakeOperacion{
+			detalle: &opclient.ViajeDetalle{
+				Viaje: opclient.Viaje{
+					Id:     id,
+					Estado: opclient.EstadoViaje(estados.EstadoEnTransito),
+					Origen: "CDMX",
+				},
+				CondicionesActivas: []opclient.CondicionAbierta{},
+				IncidenciasActivas: incs,
+			},
+		}
+	}
+	// Antes: incidencia abierta -> el cliente la ve.
+	antes := base(&[]opclient.IncidenciaActiva{{
+		Id: uuid.New(), TipoInterno: "Asalto O Robo",
+		Estado: opclient.IncidenciaActivaEstadoEnAtencion, AbiertaEn: time.Now().UTC(),
+	}})
+	hAntes := NewHandlers(Deps{Operacion: antes})
+	recAntes := hacerPeticionConPathID(t, hAntes.SeguirViaje, id.String(),
+		&auth.Claims{SesionID: "s", Subject: "u"})
+	var gotAntes bffclient.ViajeSeguimiento
+	decodificarCuerpo(t, recAntes, &gotAntes)
+	if len(gotAntes.Incidencias) != 1 {
+		t.Fatalf("antes de resolver, el cliente debe ver 1 incidencia, dio %d", len(gotAntes.Incidencias))
+	}
+
+	// Despues: operacion ya no la lista -> el cliente deja de verla, sin accion extra.
+	despues := base(&[]opclient.IncidenciaActiva{})
+	hDespues := NewHandlers(Deps{Operacion: despues})
+	recDespues := hacerPeticionConPathID(t, hDespues.SeguirViaje, id.String(),
+		&auth.Claims{SesionID: "s", Subject: "u"})
+	var gotDespues bffclient.ViajeSeguimiento
+	decodificarCuerpo(t, recDespues, &gotDespues)
+	if len(gotDespues.Incidencias) != 0 {
+		t.Errorf("tras resolver, el cliente no debe ver la incidencia; dio %d", len(gotDespues.Incidencias))
 	}
 }
 
