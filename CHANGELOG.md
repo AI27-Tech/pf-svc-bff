@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 2026:10:23 — Passthrough del token hacia operacion e identidad (arreglo del actor de descarga)
+
+**Resumen:** El `bff` ahora propaga el Bearer del usuario aguas abajo en TODAS sus aristas de usuario, no solo en la de `mensajeria`. Antes, los adaptadores HTTP de `operacion` e `identidad` se construían sin propagar el token: toda llamada salía SIN `Authorization`. Esto arregla un bug real en la descarga del expediente (E6-T3, ya en `-d`): `registrarDescargaViaje` deja el actor del rastro de auditoría a partir de `claims.Subject` en `operacion`; sin el token, el actor quedaba vacío o `operacion` respondía 401. El doc-comment del adaptador ya prometía esta propagación; ahora el código la cumple.
+
+**Para quién:** para cualquier usuario cuyo request pase por el `bff` hacia `operacion` (crear/listar/seguir viaje, bitácora, auditoría, registrar descarga) o haga logout en `identidad`. `operacion` deriva rol/alcance/actor del token (DEC-053, E1-T7); sin el Bearer no puede.
+
+**Mecánica — por qué el contexto y no un parámetro del puerto:** la arista `bff→operacion` (e `identidad`) tiene DOS adaptadores del mismo puerto. El HTTP (standalone, I5) cruza un proceso y DEBE reenviar el token como header. El EN PROCESO de `core` NO cruza proceso: los claims ya viajan en el `ctx` de la petición y `operacion` los lee con `auth.ClaimsFromContext`. Meter `bearer string` en la firma del puerto obligaría al adaptador en proceso a aceptar un dato que no usa y tocaría `pf-svc-core` (I4). En su lugar, el handler guarda el Bearer en el `ctx` (`internal/tokenctx`) y el adaptador HTTP lo lee e inyecta con un `RequestEditorFn`; el adaptador en proceso lo ignora. La firma del puerto no cambia y `core` no se toca.
+
+**Qué se propaga y qué no** (verificado contra el servidor, ADR 26 / DEC-053/054):
+- `operacion`: las seis (crearViaje, listarViajes, obtenerViaje, listarBitacora, consultarAuditoria, registrarDescargaViaje) → **propagan el Bearer**.
+- `identidad`: `revocarSesion` (logout) → **propaga el Bearer**. `emitirSesion`/`refrescarSesion` son públicas. `obtenerSesion`/`listarSesionesRevocadas` son consultas de servicio en background (proyección de revocación, ADR 26 §5): NO hay usuario en ese flujo, así que NO se propaga un token de usuario.
+
+**Cambios:**
+- `internal/tokenctx/tokenctx.go` (nuevo): paquete hoja con `Con(ctx, bearer)` y `De(ctx)` para llevar el Bearer en el contexto. Documenta por qué es contexto y no parámetro.
+- `internal/agregacion/handlers.go`: `CrearViaje`, `ListarViajes`, `SeguirViaje`, `DescargarViaje` (y sus llamadas en cadena) y `CerrarSesion` envuelven el `ctx` con `tokenctx.Con(r.Context(), r.Header.Get("Authorization"))`.
+- `adapters/http/operacion.go`: `conBearerOperacion(ctx)` devuelve un `RequestEditorFn` que reenvía el Bearer del ctx; se pasa en las seis llamadas.
+- `adapters/http/identidad.go`: `conBearerIdentidad(ctx)` análogo; se pasa solo en `revocarSesion`.
+
+**Pruebas:**
+- `adapters/http/passthrough_test.go` (nuevo): con un `HttpRequestDoer` fake que captura el header, se verifica que `operacion.ObtenerViaje` reenvía el `Authorization` del ctx, que sin Bearer no inventa cabecera, y que `identidad.RevocarSesion` propaga el Bearer.
+- `internal/agregacion/handlers_test.go`: `TestSeguirViajePropagaBearerAOperacion` cierra el extremo handler (el `Authorization` del request llega al ctx que recibe el puerto); `fakeOperacion` captura el bearer del ctx.
+
+**Verificado:** `gofmt -l .` limpio, `go build ./...`, `go vet ./...`, `go test ./...` en verde y `arch-test: OK`.
+
+**Decisiones / notas:** (1) La arista a `mensajeria` conserva su `bearer string` explícito: es una arista sin gemelo en proceso, el patrón no aplica ahí. (2) Brecha de contrato reportada (no corregida aquí): `refrescarSesion` es pública en runtime pero `identidad.yaml` no le declara `security: []` (solo `emitirSesion`). Es trabajo de contrato.
+
 ## 2026:10:23 — Carril interno de emergencia: panel de atención (E7/tracer.17)
 
 **Resumen:** Se agrega el lado interno de emergencia al `bff`, bajo el prefijo nuevo `/api/v1/panel`. Reacción (y supervisor/coordinador con alcance) ahora puede listar los casos de un viaje con la vista interna completa y ATENDERLOS: reclamar, liberar el reclamo, transferir, resolver y cerrar. Completa el punta-a-punta de E7: el carril cliente (activar/nota/listar) ya existía; este es el carril del operador que atiende.

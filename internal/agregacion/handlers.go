@@ -16,6 +16,7 @@ import (
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
 	"github.com/AI27-Tech/pf-svc-bff/internal/descarga"
 	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
+	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tracking"
 	"github.com/google/uuid"
 	openapitypes "github.com/oapi-codegen/runtime/types"
@@ -94,7 +95,7 @@ func (h *Handlers) CerrarSesion(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, platformerrors.NewNoAutorizado("bff: cerrarSesion: sesion_id invalido en el token"))
 		return
 	}
-	if err := h.deps.Identidad.RevocarSesion(r.Context(), id); err != nil {
+	if err := h.deps.Identidad.RevocarSesion(tokenctx.Con(r.Context(), r.Header.Get("Authorization")), id); err != nil {
 		escribirError(w, err)
 		return
 	}
@@ -109,7 +110,8 @@ func (h *Handlers) CrearViaje(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, err)
 		return
 	}
-	viaje, err := h.deps.Operacion.CrearViaje(r.Context(), aCrearViajeOperacion(cuerpo))
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	viaje, err := h.deps.Operacion.CrearViaje(ctx, aCrearViajeOperacion(cuerpo))
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -128,7 +130,8 @@ func (h *Handlers) ListarViajes(w http.ResponseWriter, r *http.Request) {
 		c := opclient.Cursor(cursor)
 		params.Cursor = &c
 	}
-	pagina, err := h.deps.Operacion.ListarViajes(r.Context(), params)
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	pagina, err := h.deps.Operacion.ListarViajes(ctx, params)
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -145,7 +148,8 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, platformerrors.NewValidacion("bff: seguirViaje: id invalido"))
 		return
 	}
-	detalle, err := h.deps.Operacion.ObtenerViaje(r.Context(), id)
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -187,20 +191,27 @@ func (h *Handlers) DescargarViaje(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// El Bearer del usuario viaja en el ctx para que el adaptador HTTP lo
+	// propague a operacion: registrarDescargaViaje deja el actor del rastro de
+	// auditoria a partir de claims.Subject (E1-T7), que sin el token quedaria
+	// vacio. El adaptador en proceso de core ignora el ctx-bearer (ya tiene los
+	// claims en el ctx).
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+
 	// 2. Composicion: ficha + bitacora + auditoria, leyendo de operacion. El
 	//    alcance fino lo resuelve operacion: cualquier 403 (fuera de alcance) o
 	//    404 (viaje inexistente) se propaga tal cual, sin componer el resto.
-	detalle, err := h.deps.Operacion.ObtenerViaje(r.Context(), id)
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
-	bitacora, err := h.bitacoraCompleta(r.Context(), id)
+	bitacora, err := h.bitacoraCompleta(ctx, id)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
-	auditoria, err := h.auditoriaCompleta(r.Context(), id)
+	auditoria, err := h.auditoriaCompleta(ctx, id)
 	if err != nil {
 		escribirError(w, err)
 		return
@@ -213,7 +224,7 @@ func (h *Handlers) DescargarViaje(w http.ResponseWriter, r *http.Request) {
 	//    Exactamente una vez por descarga exitosa. Si operacion falla al
 	//    registrar, la descarga no se entrega: no se sirve un expediente cuya
 	//    descarga no quedo auditada.
-	if _, err := h.deps.Operacion.RegistrarDescargaViaje(r.Context(), id); err != nil {
+	if _, err := h.deps.Operacion.RegistrarDescargaViaje(ctx, id); err != nil {
 		escribirError(w, err)
 		return
 	}

@@ -16,6 +16,7 @@ import (
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
+	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
 	"github.com/google/uuid"
 )
 
@@ -541,6 +542,10 @@ type fakeOperacion struct {
 	registrarRecibio opclient.Id
 	registrarViaje   *opclient.Viaje
 	registrarErr     error
+
+	// bearerRecibido captura el Bearer que el handler dejó en el ctx (passthrough
+	// del token hacia operacion). Lo escribe ObtenerViaje.
+	bearerRecibido string
 }
 
 func (f *fakeOperacion) CrearViaje(_ context.Context, body opclient.CrearViajeEntrada) (*opclient.Viaje, error) {
@@ -559,8 +564,9 @@ func (f *fakeOperacion) ListarViajes(_ context.Context, params opclient.ListarVi
 	return f.pagina, nil
 }
 
-func (f *fakeOperacion) ObtenerViaje(_ context.Context, id opclient.Id) (*opclient.ViajeDetalle, error) {
+func (f *fakeOperacion) ObtenerViaje(ctx context.Context, id opclient.Id) (*opclient.ViajeDetalle, error) {
 	f.obtenerRecibio = id
+	f.bearerRecibido = tokenctx.De(ctx)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -599,4 +605,35 @@ func (f *fakeOperacion) RegistrarDescargaViaje(_ context.Context, id opclient.Id
 		return nil, f.registrarErr
 	}
 	return f.registrarViaje, nil
+}
+
+// TestSeguirViajePropagaBearerAOperacion: el handler toma el Authorization del
+// request y lo deja en el ctx que recibe el puerto operacion, para que el
+// adaptador HTTP lo reenvíe aguas abajo (DEC-053: operacion deriva alcance del
+// token). Cierra el extremo handler del passthrough.
+func TestSeguirViajePropagaBearerAOperacion(t *testing.T) {
+	fake := &fakeOperacion{detalle: &opclient.ViajeDetalle{
+		Viaje: opclient.Viaje{
+			Id:     uuid.New(),
+			Estado: opclient.EstadoViaje(estados.EstadoEnTransito),
+			Origen: "CDMX",
+		},
+		CondicionesActivas: []opclient.CondicionAbierta{},
+	}}
+	h := NewHandlers(Deps{Operacion: fake})
+
+	id := uuid.New()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/viajes/"+id.String(), nil)
+	req.Header.Set("Authorization", "Bearer tok-seguir")
+	req.SetPathValue("id", id.String())
+	rec := httptest.NewRecorder()
+
+	h.SeguirViaje(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if fake.bearerRecibido != "Bearer tok-seguir" {
+		t.Errorf("el handler no propagó el Bearer al ctx de operacion: %q", fake.bearerRecibido)
+	}
 }

@@ -3,11 +3,13 @@ package http
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 	bff "github.com/AI27-Tech/pf-svc-bff"
 	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
+	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
 )
 
 // OperacionHTTP implementa bff.OperacionPort con el cliente generado de
@@ -35,13 +37,28 @@ func NewOperacionHTTP(baseURL string, doer opclient.HttpRequestDoer) (*Operacion
 	return &OperacionHTTP{cli: cli, presupuesto: bff.PresupuestoOperacion}, nil
 }
 
+// conBearerOperacion propaga el Bearer del usuario (tomado del ctx) hacia
+// operacion. Operacion deriva rol/alcance/actor del token (DEC-053, E1-T7), así
+// que toda operacion de usuario DEBE llevarlo. Bearer ausente no añade cabecera
+// (operacion responderá 401). El adaptador en proceso de core no usa esto: ahí
+// los claims ya viajan en el ctx.
+func conBearerOperacion(ctx context.Context) opclient.RequestEditorFn {
+	bearer := tokenctx.De(ctx)
+	return func(_ context.Context, req *http.Request) error {
+		if bearer != "" {
+			req.Header.Set("Authorization", bearer)
+		}
+		return nil
+	}
+}
+
 // CrearViaje reenvia la creacion a operacion.crearViaje. El estado inicial lo
 // fija el rol del token en operacion (DEC-026); bff no decide.
 func (a *OperacionHTTP) CrearViaje(ctx context.Context, body opclient.CrearViajeEntrada) (*opclient.Viaje, error) {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.CrearViajeWithResponse(ctx, body)
+	resp, err := a.cli.CrearViajeWithResponse(ctx, body, conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("CrearViaje", err)
 	}
@@ -57,7 +74,7 @@ func (a *OperacionHTTP) ListarViajes(ctx context.Context, params opclient.Listar
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.ListarViajesWithResponse(ctx, &params)
+	resp, err := a.cli.ListarViajesWithResponse(ctx, &params, conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("ListarViajes", err)
 	}
@@ -73,7 +90,7 @@ func (a *OperacionHTTP) ObtenerViaje(ctx context.Context, id opclient.Id) (*opcl
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.ObtenerViajeWithResponse(ctx, id)
+	resp, err := a.cli.ObtenerViajeWithResponse(ctx, id, conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("ObtenerViaje", err)
 	}
@@ -90,7 +107,7 @@ func (a *OperacionHTTP) ListarBitacora(ctx context.Context, id opclient.Id, para
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.ListarBitacoraWithResponse(ctx, id, &params)
+	resp, err := a.cli.ListarBitacoraWithResponse(ctx, id, &params, conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("ListarBitacora", err)
 	}
@@ -106,7 +123,7 @@ func (a *OperacionHTTP) ConsultarAuditoria(ctx context.Context, id opclient.Id, 
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.ConsultarAuditoriaWithResponse(ctx, id, &params)
+	resp, err := a.cli.ConsultarAuditoriaWithResponse(ctx, id, &params, conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("ConsultarAuditoria", err)
 	}
@@ -124,7 +141,7 @@ func (a *OperacionHTTP) RegistrarDescargaViaje(ctx context.Context, id opclient.
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.RegistrarDescargaViajeWithResponse(ctx, id)
+	resp, err := a.cli.RegistrarDescargaViajeWithResponse(ctx, id, conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("RegistrarDescargaViaje", err)
 	}
