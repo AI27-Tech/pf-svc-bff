@@ -156,6 +156,10 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.CrearViaje)))
 	mux.Handle("GET /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.ListarViajes)))
 	mux.Handle("GET /api/v1/viajes/{id}", protegido(http.HandlerFunc(m.handlers.SeguirViaje)))
+	// Descarga del expediente de UN viaje (E6-T3, solo interno). El check de
+	// audiencia vive en el handler, antes de componer nada; aqui solo se protege
+	// con verificacion local + tombstones como las demas rutas.
+	mux.Handle("GET /api/v1/viajes/{id}/descarga", protegido(http.HandlerFunc(m.handlers.DescargarViaje)))
 	mux.Handle("GET /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaCliente)))

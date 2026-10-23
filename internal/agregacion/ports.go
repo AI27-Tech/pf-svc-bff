@@ -35,8 +35,9 @@ type IdentidadPort interface {
 	ObtenerSesion(ctx context.Context, id idclient.Id) (*idclient.EstadoSesion, error)
 }
 
-// OperacionPort es la arista a operacion: crear viaje, listar por alcance y
-// obtener detalle. Sin transiciones internas ni asignacion (bff.md (f)).
+// OperacionPort es la arista a operacion: crear viaje, listar por alcance,
+// obtener detalle, leer bitacora y auditoria, y dejar el rastro de la descarga.
+// Sin transiciones internas ni asignacion (bff.md (f)).
 type OperacionPort interface {
 	// CrearViaje reenvia la creacion; el estado inicial lo fija el rol del token
 	// en operacion (DEC-026), bff no decide.
@@ -44,8 +45,23 @@ type OperacionPort interface {
 	// ListarViajes lista por alcance; el tenant y el rol salen del token y el
 	// alcance (unidad/cliente) se resuelve en servidor (DEC-053).
 	ListarViajes(ctx context.Context, params opclient.ListarViajesParams) (*opclient.PaginaViajes, error)
-	// ObtenerViaje lee el detalle para la composicion de hitos (ADR 27).
+	// ObtenerViaje lee el detalle para la composicion de hitos (ADR 27) y para la
+	// ficha tecnica del expediente de descarga (E6-T3).
 	ObtenerViaje(ctx context.Context, id opclient.Id) (*opclient.ViajeDetalle, error)
+	// ListarBitacora lee UNA pagina del historico de bitacora del viaje (E6-T3).
+	// El cursor opaco viaja en params; la composicion de la descarga agota las
+	// paginas (ADR 27: operacion es la fuente exacta, nunca reportes).
+	ListarBitacora(ctx context.Context, id opclient.Id, params opclient.ListarBitacoraParams) (*opclient.PaginaBitacora, error)
+	// ConsultarAuditoria lee UNA pagina de la auditoria relevante del viaje
+	// (E6-T3). El cursor opaco viaja en params; la composicion agota las paginas.
+	ConsultarAuditoria(ctx context.Context, id opclient.Id, params opclient.ConsultarAuditoriaParams) (*opclient.PaginaAuditoria, error)
+	// RegistrarDescargaViaje pide a operacion que DEJE el rastro de auditoria de
+	// una descarga exitosa (actor, viaje, momento; E1-T7). El rastro lo escribe
+	// operacion en su transaccion, NO bff (que no tiene base de datos). Sin
+	// cuerpo: el actor sale de los claims del token aguas abajo. Devuelve el
+	// Viaje descargado, que bff descarta (la respuesta al cliente es el
+	// expediente ya compuesto).
+	RegistrarDescargaViaje(ctx context.Context, id opclient.Id) (*opclient.Viaje, error)
 }
 
 // MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia

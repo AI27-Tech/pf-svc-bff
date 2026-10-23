@@ -529,6 +529,18 @@ type fakeOperacion struct {
 	crearRecibio   opclient.CrearViajeEntrada
 	listarRecibio  opclient.ListarViajesParams
 	obtenerRecibio opclient.Id
+
+	// Descarga (E6-T3): paginas de bitacora y auditoria que el fake va sirviendo
+	// (una por llamada, para ejercer el agotamiento de cursor), el contador de
+	// llamadas a RegistrarDescargaViaje y el viaje que esa llamada devuelve.
+	bitacoraPaginas  []*opclient.PaginaBitacora
+	bitacoraIdx      int
+	auditoriaPaginas []*opclient.PaginaAuditoria
+	auditoriaIdx     int
+	registrarLlamado int
+	registrarRecibio opclient.Id
+	registrarViaje   *opclient.Viaje
+	registrarErr     error
 }
 
 func (f *fakeOperacion) CrearViaje(_ context.Context, body opclient.CrearViajeEntrada) (*opclient.Viaje, error) {
@@ -553,4 +565,38 @@ func (f *fakeOperacion) ObtenerViaje(_ context.Context, id opclient.Id) (*opclie
 		return nil, f.err
 	}
 	return f.detalle, nil
+}
+
+func (f *fakeOperacion) ListarBitacora(_ context.Context, _ opclient.Id, _ opclient.ListarBitacoraParams) (*opclient.PaginaBitacora, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.bitacoraIdx >= len(f.bitacoraPaginas) {
+		// Sin paginas configuradas: una pagina vacia sin cursor (caso por defecto).
+		return &opclient.PaginaBitacora{Items: []opclient.EntradaBitacora{}}, nil
+	}
+	p := f.bitacoraPaginas[f.bitacoraIdx]
+	f.bitacoraIdx++
+	return p, nil
+}
+
+func (f *fakeOperacion) ConsultarAuditoria(_ context.Context, _ opclient.Id, _ opclient.ConsultarAuditoriaParams) (*opclient.PaginaAuditoria, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.auditoriaIdx >= len(f.auditoriaPaginas) {
+		return &opclient.PaginaAuditoria{Items: []opclient.RegistroAuditoria{}}, nil
+	}
+	p := f.auditoriaPaginas[f.auditoriaIdx]
+	f.auditoriaIdx++
+	return p, nil
+}
+
+func (f *fakeOperacion) RegistrarDescargaViaje(_ context.Context, id opclient.Id) (*opclient.Viaje, error) {
+	f.registrarLlamado++
+	f.registrarRecibio = id
+	if f.registrarErr != nil {
+		return nil, f.registrarErr
+	}
+	return f.registrarViaje, nil
 }
