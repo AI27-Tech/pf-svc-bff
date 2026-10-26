@@ -11,6 +11,7 @@ package agregacion
 import (
 	"context"
 
+	catclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/catalogos"
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
 	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
@@ -98,10 +99,24 @@ type MensajeriaPort interface {
 	CerrarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error)
 }
 
+// CatalogosPort es la arista a catalogos: el selector de clientes para crear un
+// viaje por Operación (E8-T11). bff reenvía el cursor y propaga el Bearer;
+// catalogos devuelve SOLO clientes activos (DEC-101 #1). El filtro de alcance del
+// jefe_operativo (DEC-026 #3) NO lo aplica catalogos ni hoy el bff: queda
+// pendiente (DEC-101 #2 lo atribuye a bff/operacion). La regla de puerta única
+// impide al frontend llamar a catalogos directo: bff lo proyecta, mismo patrón
+// que listarViajes.
+type CatalogosPort interface {
+	// ListarClientes lista una página de clientes activos. El cursor opaco viaja
+	// en params; el filtro de solo-activos lo resuelve catalogos en servidor.
+	ListarClientes(ctx context.Context, bearer string, params catclient.ListarClientesParams) (*catclient.PaginaClientes, error)
+}
+
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New
 // los inyecta.
 type Deps struct {
 	Identidad  IdentidadPort
 	Operacion  OperacionPort
 	Mensajeria MensajeriaPort
+	Catalogos  CatalogosPort
 }

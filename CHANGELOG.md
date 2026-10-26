@@ -12,6 +12,23 @@
 
 **Nota:** el bump trae también al contrato del `bff` la ruta `listarClientes` y `Asignacion.estado`; ninguno se cablea aquí. `Asignacion.estado` es inerte (el `bff` no proyecta asignación) y `listarClientes` va en su propio carril (depende de que `catalogos` lo implemente).
 
+## 2026-10-27 — tracer.20: selector de clientes `GET /api/v1/clientes` (E8-T11)
+
+**Resumen:** el `bff` proyecta `catalogos.listarClientes` como `GET /api/v1/clientes` para poblar el selector de cliente al crear un viaje por Operación. Reenvía el cursor y propaga el Bearer; `catalogos` devuelve SOLO clientes activos (DEC-101 #1). Mismo patrón de proyección que `listarViajes`→`operacion`.
+
+**Para quién:** para `pf-web-frontend-internal`, que necesita el selector al crear un viaje desde el panel (E8-T11).
+
+**Alcance (DEC-026 #3 / DEC-101 #2):** el filtro de alcance del `jefe_operativo` NO lo aplica `catalogos` (es hoja, sin mecanismo de alcance); DEC-101 #2 lo atribuye al `bff`/`operacion`. Este carril aún NO aplica ese filtro de alcance: reenvía la lista de activos tal cual. Queda como pendiente anotado (el recorte por alcance del operador es trabajo separado); hoy el `bff` no lee rol ni alcance para esta ruta.
+
+**Cambios:**
+- `internal/agregacion/ports.go`: puerto `CatalogosPort` (método `ListarClientes(ctx, bearer, params)`) y campo `Catalogos` en `Deps`.
+- `ports.go`: alias `CatalogosPort` y `PresupuestoCatalogos`.
+- `adapters/http/catalogos.go` (nuevo): adaptador HTTP sobre el cliente generado de `catalogos`, con passthrough del Bearer (`conBearerCatalogos`) y la taxonomía de error de la plataforma.
+- `internal/agregacion/handlers.go`: handler `ListarClientes` (reenvía el cursor, propaga el Bearer) y helper `aClientesBff` que traduce `catclient.PaginaClientes`→`bffclient.PaginaClientes` (espejo, paquetes generados distintos).
+- `bff.go`: `Catalogos` en `Deps`/`New` y ruta `GET /api/v1/clientes` (protegida).
+- `bff_test.go`: `listarClientes` entra en la lista de rutas montadas contra el contrato.
+- `go.mod`/`go.sum`: pin de `api-client-go` a `v0.1.0-tracer.20`.
+
 ## 2026:10:23 — Passthrough del token hacia operacion e identidad (arreglo del actor de descarga)
 
 **Resumen:** El `bff` ahora propaga el Bearer del usuario aguas abajo en TODAS sus aristas de usuario, no solo en la de `mensajeria`. Antes, los adaptadores HTTP de `operacion` e `identidad` se construían sin propagar el token: toda llamada salía SIN `Authorization`. Esto arregla un bug real en la descarga del expediente (E6-T3, ya en `-d`): `registrarDescargaViaje` deja el actor del rastro de auditoría a partir de `claims.Subject` en `operacion`; sin el token, el actor quedaba vacío o `operacion` respondía 401. El doc-comment del adaptador ya prometía esta propagación; ahora el código la cumple.

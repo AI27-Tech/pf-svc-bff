@@ -25,6 +25,10 @@ type OperacionPort = agregacion.OperacionPort
 // panel interno de atención (E7/tracer.17). Propaga el token del usuario.
 type MensajeriaPort = agregacion.MensajeriaPort
 
+// CatalogosPort es la arista a catalogos: el selector de clientes para crear un
+// viaje por Operación (E8-T11). Propaga el token del usuario.
+type CatalogosPort = agregacion.CatalogosPort
+
 // Presupuestos de latencia por dependencia (bff.md (i)): el agregador no degrada
 // una vista ajena, cada arista tiene su propio presupuesto y pool. Los VALORES
 // concretos no estan en las fuentes y NO se inventan: quedan como configuracion
@@ -41,4 +45,7 @@ const (
 	// PresupuestoMensajeria es el presupuesto corto hacia mensajeria (portal
 	// cliente de emergencia). Valor pendiente de configuracion.
 	PresupuestoMensajeria = 2 * time.Second
+	// PresupuestoCatalogos es el presupuesto corto hacia catalogos (selector de
+	// clientes, E8-T11). Valor pendiente de configuracion.
+	PresupuestoCatalogos = 2 * time.Second
 )
