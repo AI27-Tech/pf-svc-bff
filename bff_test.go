@@ -30,6 +30,8 @@ var operacionesFaseA = []rutaContrato{
 	{"crearViaje", http.MethodPost, "/api/v1/viajes", true},
 	{"listarViajes", http.MethodGet, "/api/v1/viajes", true},
 	{"seguirViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000", true},
+	{"listarClientes", http.MethodGet, "/api/v1/clientes", true},
+	{"descargarViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/descarga", true},
 }
 
 // TestRutasMontadasContraContrato verifica que New().Routes monta exactamente
@@ -59,7 +61,9 @@ func TestRutasMontadasContraContrato(t *testing.T) {
 }
 
 // TestRutaNoDeContratoNoMontada verifica que una ruta de fase (b) o fuera del
-// contrato (p. ej. /api/v1/panel, brecha reportada) NO esta montada.
+// contrato NO esta montada. El prefijo /api/v1/panel SÍ existe ahora (carril
+// interno de emergencia, E7), pero /api/v1/panel a secas no resuelve ningun
+// patron: el panel solo monta subrutas .../viajes/{id}/emergencias/...
 func TestRutaNoDeContratoNoMontada(t *testing.T) {
 	mod, _ := bff.New(bff.Pools{}, bff.Deps{
 		Verificador: verificadorSiempreFalla{},
@@ -68,10 +72,17 @@ func TestRutaNoDeContratoNoMontada(t *testing.T) {
 	mod.Routes(mux)
 
 	noDeberian := []struct{ metodo, ruta string }{
-		{http.MethodGet, "/api/v1/panel"},              // brecha reportada: no existe en el contrato
+		{http.MethodGet, "/api/v1/panel"},              // prefijo sin subruta: nada que montar
 		{http.MethodGet, "/api/v1/viajes/x/tracking"},  // V2
 		{http.MethodPost, "/api/v1/panico"},            // V2
 		{http.MethodGet, "/api/v1/catalogos/clientes"}, // fase (b)
+		// La descarga es de UN viaje; la exportacion de listados/lote es V2
+		// (DEC-023), por eso NO existe una ruta de lote con patron propio. Nota:
+		// no se prueba "/api/v1/viajes/descarga" porque el mux lo resuelve como
+		// el patron de UN viaje ({id} = "descarga"), no como una ruta distinta;
+		// probar eso afirmaria algo sobre net/http, no sobre el contrato de bff.
+		{http.MethodPost, "/api/v1/descargas"},        // lote global (no existe)
+		{http.MethodPost, "/api/v1/viajes/descargas"}, // lote por coleccion (no existe)
 	}
 	for _, r := range noDeberian {
 		req := httptest.NewRequest(r.metodo, r.ruta, nil)

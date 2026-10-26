@@ -26,9 +26,10 @@ import (
 // audiencia esperada del JWT. La URL del JWKS y la direccion HTTP las aporta
 // config.Load (JWKS_URL, HTTP_ADDR). bff no tiene DB_*_URL: no es dueno de datos.
 const (
-	envIdentidadBase = "IDENTIDAD_BASE_URL"
-	envOperacionBase = "OPERACION_BASE_URL"
-	envAudiencia     = "JWT_AUDIENCIA_ESPERADA"
+	envIdentidadBase  = "IDENTIDAD_BASE_URL"
+	envOperacionBase  = "OPERACION_BASE_URL"
+	envMensajeriaBase = "MENSAJERIA_BASE_URL"
+	envAudiencia      = "JWT_AUDIENCIA_ESPERADA"
 )
 
 // ttlJWKS es el TTL de la cache de claves del verificador. Valor de arranque
@@ -45,7 +46,7 @@ func main() {
 func run() error {
 	ctx := context.Background()
 
-	cfg, err := config.Load(envIdentidadBase, envOperacionBase, config.EnvJWKSURL)
+	cfg, err := config.Load(envIdentidadBase, envOperacionBase, envMensajeriaBase, config.EnvJWKSURL)
 	if err != nil {
 		return err
 	}
@@ -72,6 +73,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	mensajeria, err := bffhttp.NewMensajeriaHTTP(os.Getenv(envMensajeriaBase), nil)
+	if err != nil {
+		return err
+	}
 
 	// Verificacion local de JWT contra el JWKS del IdP interno (ADR 26). La
 	// audiencia de dominio (Cliente|Interno) se lee de auth.Claims.Audiencia; el
@@ -85,6 +90,7 @@ func run() error {
 	mod, err := bff.New(bff.Pools{}, bff.Deps{
 		Identidad:   identidad,
 		Operacion:   operacion,
+		Mensajeria:  mensajeria,
 		Verificador: verificador,
 	})
 	if err != nil {
