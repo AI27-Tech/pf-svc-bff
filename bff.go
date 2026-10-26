@@ -54,6 +54,9 @@ type Deps struct {
 	// Mensajeria es la arista a mensajeria: el portal cliente de emergencia
 	// (E7/tracer.17). Primera arista bff→mensajeria; propaga el token del usuario.
 	Mensajeria MensajeriaPort
+	// Catalogos es la arista a catalogos: el selector de clientes para crear un
+	// viaje por Operación (E8-T11); propaga el token del usuario.
+	Catalogos CatalogosPort
 
 	// Verificador verifica JWT localmente contra el JWKS del IdP interno
 	// (auth.NewVerifier). Nunca viaja a identidad para verificar (ADR 26).
@@ -89,6 +92,7 @@ func New(_ Pools, d Deps) (*Module, error) {
 		Identidad:  d.Identidad,
 		Operacion:  d.Operacion,
 		Mensajeria: d.Mensajeria,
+		Catalogos:  d.Catalogos,
 	})
 	m := &Module{deps: d, handlers: h}
 
@@ -156,6 +160,9 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.CrearViaje)))
 	mux.Handle("GET /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.ListarViajes)))
 	mux.Handle("GET /api/v1/viajes/{id}", protegido(http.HandlerFunc(m.handlers.SeguirViaje)))
+	// Selector de clientes para crear un viaje por Operación (E8-T11): reenvío a
+	// catalogos, solo clientes activos del alcance del jefe_operativo.
+	mux.Handle("GET /api/v1/clientes", protegido(http.HandlerFunc(m.handlers.ListarClientes)))
 	// Descarga del expediente de UN viaje (E6-T3, solo interno). El check de
 	// audiencia vive en el handler, antes de componer nada; aqui solo se protege
 	// con verificacion local + tombstones como las demas rutas.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
+	catclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/catalogos"
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
 	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
@@ -138,6 +139,26 @@ func (h *Handlers) ListarViajes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	escribirJSON(w, http.StatusOK, pagina)
+}
+
+// ListarClientes delega en catalogos.listarClientes para poblar el selector de
+// cliente al crear un viaje por Operación (E8-T11). Reenvía el cursor y propaga
+// el Bearer; catalogos devuelve SOLO clientes activos (DEC-101 #1). El filtro de
+// alcance del jefe_operativo (DEC-026 #3) todavía NO se aplica aquí (pendiente,
+// DEC-101 #2). La respuesta se traduce al tipo de bff (espejo de catalogos,
+// paquetes generados distintos). Ruta protegida.
+func (h *Handlers) ListarClientes(w http.ResponseWriter, r *http.Request) {
+	var params catclient.ListarClientesParams
+	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
+		c := catclient.Cursor(cursor)
+		params.Cursor = &c
+	}
+	pagina, err := h.deps.Catalogos.ListarClientes(r.Context(), r.Header.Get("Authorization"), params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aClientesBff(pagina))
 }
 
 // SeguirViaje delega en operacion.obtenerViaje y compone los hitos V1 por
@@ -537,6 +558,27 @@ func aEmergenciasCliente(p *msgclient.PaginaEmergencias) bffclient.EmergenciasCl
 		if c.Estado == msgclient.EstadoEmergenciaAbierta || c.Estado == msgclient.EstadoEmergenciaEnAtencion {
 			out.EmergenciaActiva = true
 		}
+	}
+	return out
+}
+
+// aClientesBff traduce la PaginaClientes de catalogos a la de bff. Ambas
+// comparten forma (espejo), pero son tipos de paquetes generados distintos; la
+// traduccion es explicita para no acoplarlos. Items nunca nil (lista vacía como
+// forma estable).
+func aClientesBff(p *catclient.PaginaClientes) bffclient.PaginaClientes {
+	out := bffclient.PaginaClientes{Items: []bffclient.Cliente{}}
+	if p == nil {
+		return out
+	}
+	out.CursorSiguiente = p.CursorSiguiente
+	for _, c := range p.Items {
+		out.Items = append(out.Items, bffclient.Cliente{
+			Id:                c.Id,
+			Nombre:            c.Nombre,
+			Estado:            bffclient.ClienteEstado(c.Estado),
+			ContratoVigenteId: c.ContratoVigenteId,
+		})
 	}
 	return out
 }
