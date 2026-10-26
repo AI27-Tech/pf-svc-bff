@@ -14,6 +14,7 @@ import (
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
 	bff "github.com/AI27-Tech/pf-svc-bff"
 	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
+	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
 )
 
 // IdentidadHTTP implementa bff.IdentidadPort con el cliente generado de
@@ -38,6 +39,19 @@ func NewIdentidadHTTP(baseURL string, doer idclient.HttpRequestDoer) (*Identidad
 		return nil, fmt.Errorf("bff: crear cliente de identidad: %w", err)
 	}
 	return &IdentidadHTTP{cli: cli, presupuesto: bff.PresupuestoIdentidad}, nil
+}
+
+// conBearerIdentidad propaga el Bearer del usuario (del ctx) hacia identidad.
+// Solo lo usa RevocarSesion (logout): emitir/refrescar son publicas y las
+// consultas de revocacion son de servicio. Bearer ausente no añade cabecera.
+func conBearerIdentidad(ctx context.Context) idclient.RequestEditorFn {
+	bearer := tokenctx.De(ctx)
+	return func(_ context.Context, req *http.Request) error {
+		if bearer != "" {
+			req.Header.Set("Authorization", bearer)
+		}
+		return nil
+	}
 }
 
 // EmitirSesion reenvia credenciales a identidad.emitirSesion.
@@ -70,12 +84,15 @@ func (a *IdentidadHTTP) RefrescarSesion(ctx context.Context, body idclient.Refre
 	return resp.JSON200, nil
 }
 
-// RevocarSesion revoca la sesion dada; identidad publica sesion.revocada.
+// RevocarSesion revoca la sesion dada; identidad publica sesion.revocada. Es la
+// unica arista de usuario a identidad (logout): propaga el Bearer del ctx. Las
+// demas aristas de este adaptador son publicas (emitir/refrescar) o de servicio
+// en background (obtener/listar revocadas), sin usuario que propagar.
 func (a *IdentidadHTTP) RevocarSesion(ctx context.Context, id idclient.Id) error {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.RevocarSesionWithResponse(ctx, id)
+	resp, err := a.cli.RevocarSesionWithResponse(ctx, id, conBearerIdentidad(ctx))
 	if err != nil {
 		return errores.DeTransporte("RevocarSesion", err)
 	}

@@ -21,6 +21,10 @@ type IdentidadPort = agregacion.IdentidadPort
 // obtener detalle. Sin transiciones internas ni asignacion (bff.md (f)).
 type OperacionPort = agregacion.OperacionPort
 
+// MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia y el
+// panel interno de atención (E7/tracer.17). Propaga el token del usuario.
+type MensajeriaPort = agregacion.MensajeriaPort
+
 // Presupuestos de latencia por dependencia (bff.md (i)): el agregador no degrada
 // una vista ajena, cada arista tiene su propio presupuesto y pool. Los VALORES
 // concretos no estan en las fuentes y NO se inventan: quedan como configuracion
@@ -34,4 +38,7 @@ const (
 	// PresupuestoIdentidad es el presupuesto corto en emision y refresco de sesion;
 	// fuera de la ruta de verificacion (bff.md (i)). Valor pendiente de configuracion.
 	PresupuestoIdentidad = 2 * time.Second
+	// PresupuestoMensajeria es el presupuesto corto hacia mensajeria (portal
+	// cliente de emergencia). Valor pendiente de configuracion.
+	PresupuestoMensajeria = 2 * time.Second
 )
