@@ -53,8 +53,9 @@ func (h *Handlers) IniciarSesion(w http.ResponseWriter, r *http.Request) {
 	// El contrato de bff y el de identidad comparten la forma de credenciales;
 	// se traduce explicitamente para no acoplar los dos paquetes generados.
 	sesion, err := h.deps.Identidad.EmitirSesion(r.Context(), idclient.CredencialesEntrada{
-		Usuario:    cuerpo.Usuario,
-		Contrasena: cuerpo.Contrasena,
+		Usuario:       cuerpo.Usuario,
+		Contrasena:    cuerpo.Contrasena,
+		SegundoFactor: cuerpo.SegundoFactor,
 	})
 	if err != nil {
 		escribirError(w, err)

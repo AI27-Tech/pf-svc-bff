@@ -1,5 +1,17 @@
 # CHANGELOG
 
+## 2026-10-27 — tracer.20: `segundo_factor` (TOTP) en el login del `bff` (E8-T5)
+
+**Resumen:** sube el pin de `pf-pkg-contracts` a `v0.1.0-tracer.20` y propaga `segundo_factor` en `iniciarSesion`. tracer.20 agrega `CredencialesEntrada.segundo_factor` (TOTP, `nullable`, opcional V1) al contrato del `bff`, espejo del campo que ya existe en `identidad`. El `bff` lo transporta; el IdP (Keycloak) lo valida (DEC-031/DEC-071, ADR 13).
+
+**Para quién:** para `pf-web-frontend-internal`, que necesita enviar el TOTP en el login (E8-T5). Sin la línea de traducción el campo se descartaría en silencio en el `bff`.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` de `v0.1.0-tracer.17` a `v0.1.0-tracer.20`.
+- `internal/agregacion/handlers.go`: `IniciarSesion` copia `cuerpo.SegundoFactor` a `idclient.CredencialesEntrada` (la traducción es campo a campo entre paquetes generados distintos, por eso hay que añadir la línea explícita).
+
+**Nota:** el bump trae también al contrato del `bff` la ruta `listarClientes` y `Asignacion.estado`; ninguno se cablea aquí. `Asignacion.estado` es inerte (el `bff` no proyecta asignación) y `listarClientes` va en su propio carril (depende de que `catalogos` lo implemente).
+
 ## 2026:10:23 — Passthrough del token hacia operacion e identidad (arreglo del actor de descarga)
 
 **Resumen:** El `bff` ahora propaga el Bearer del usuario aguas abajo en TODAS sus aristas de usuario, no solo en la de `mensajeria`. Antes, los adaptadores HTTP de `operacion` e `identidad` se construían sin propagar el token: toda llamada salía SIN `Authorization`. Esto arregla un bug real en la descarga del expediente (E6-T3, ya en `-d`): `registrarDescargaViaje` deja el actor del rastro de auditoría a partir de `claims.Subject` en `operacion`; sin el token, el actor quedaba vacío o `operacion` respondía 401. El doc-comment del adaptador ya prometía esta propagación; ahora el código la cumple.
