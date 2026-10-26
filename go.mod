@@ -10,7 +10,7 @@ go 1.27
 // identidad, ambas HTTP via cliente generado, que no implican requerir esos
 // modulos.
 require (
-	github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go v0.1.0-tracer.17
+	github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go v0.1.0-tracer.20
 	github.com/AI27-Tech/pf-pkg-platform-go v0.1.4
 	github.com/google/uuid v1.6.0
 	github.com/oapi-codegen/runtime v1.7.0
