@@ -546,6 +546,25 @@ type fakeOperacion struct {
 	// bearerRecibido captura el Bearer que el handler dejó en el ctx (passthrough
 	// del token hacia operacion). Lo escribe ObtenerViaje.
 	bearerRecibido string
+
+	// Transición (E9-T7): lo que recibió TransicionarViaje, su error propio (para
+	// no mezclarlo con el ObtenerViaje posterior que recompone la vista) y el
+	// Viaje plano que devuelve.
+	transicionarRecibioID   opclient.Id
+	transicionarRecibioBody opclient.TransicionEntrada
+	transicionarLlamado     bool
+	transicionarErr         error
+	transicionarViaje       *opclient.Viaje
+}
+
+func (f *fakeOperacion) TransicionarViaje(_ context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error) {
+	f.transicionarLlamado = true
+	f.transicionarRecibioID = id
+	f.transicionarRecibioBody = body
+	if f.transicionarErr != nil {
+		return nil, f.transicionarErr
+	}
+	return f.transicionarViaje, nil
 }
 
 func (f *fakeOperacion) CrearViaje(_ context.Context, body opclient.CrearViajeEntrada) (*opclient.Viaje, error) {
@@ -635,5 +654,125 @@ func TestSeguirViajePropagaBearerAOperacion(t *testing.T) {
 	}
 	if fake.bearerRecibido != "Bearer tok-seguir" {
 		t.Errorf("el handler no propagó el Bearer al ctx de operacion: %q", fake.bearerRecibido)
+	}
+}
+
+// --- TransicionarViajeCliente (E9-T7 / DEC-111) ---
+
+// hacerPeticionPostConPathID arma un POST con cuerpo JSON y el path value {id}
+// seteado (como el mux al resolver POST /api/v1/viajes/{id}/transiciones-cliente),
+// con claims en el contexto. El patrón combina hacerPeticion (body) con el
+// SetPathValue de hacerPeticionConPathID.
+func hacerPeticionPostConPathID(t *testing.T, handler http.HandlerFunc, id string, cuerpo any, claims *auth.Claims) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(cuerpo)
+	if err != nil {
+		t.Fatalf("marshal cuerpo: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/viajes/"+id+"/transiciones-cliente", bytes.NewBuffer(raw))
+	req.SetPathValue("id", id)
+	if claims != nil {
+		req = req.WithContext(auth.ContextWithClaims(req.Context(), claims))
+	}
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	return rec
+}
+
+// TestTransicionarViajeClienteAudienciaInternaEs403 — un actor interno no usa la
+// superficie de cliente: recibe 403 antes de reenviar a operacion.
+func TestTransicionarViajeClienteAudienciaInternaEs403(t *testing.T) {
+	fakeOp := &fakeOperacion{}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	id := uuid.New()
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("ya no lo quiero")},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaInterno})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, se esperaba 403 por audiencia interna; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	if fakeOp.transicionarLlamado {
+		t.Error("no debió reenviar a operacion con audiencia interna")
+	}
+}
+
+// TestTransicionarViajeClienteSinClaimsEs401 — sin claims en el contexto, 401.
+func TestTransicionarViajeClienteSinClaimsEs401(t *testing.T) {
+	fakeOp := &fakeOperacion{}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	id := uuid.New()
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("motivo")}, nil)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, se esperaba 401 sin claims; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	if fakeOp.transicionarLlamado {
+		t.Error("no debió reenviar a operacion sin claims")
+	}
+}
+
+// TestTransicionarViajeClienteCliente200ReenviaYComponeVista — el cliente
+// cancela: el handler reenvía la transición traducida a operacion y devuelve la
+// vista de seguimiento recompuesta (no el detalle interno).
+func TestTransicionarViajeClienteCliente200ReenviaYComponeVista(t *testing.T) {
+	id := uuid.MustParse("66666666-6666-6666-6666-666666666666")
+	fakeOp := &fakeOperacion{
+		transicionarViaje: &opclient.Viaje{Id: id, Estado: opclient.EstadoViaje(estados.EstadoCancelado), Origen: "CDMX"},
+		detalle: &opclient.ViajeDetalle{
+			Viaje: opclient.Viaje{
+				Id:     id,
+				Estado: opclient.EstadoViaje(estados.EstadoCancelado),
+				Origen: "CDMX",
+			},
+			CondicionesActivas: []opclient.CondicionAbierta{},
+		},
+	}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("ya no necesito el servicio")},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaCliente})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	// Reenvío traducido a operacion: a_estado como EstadoViaje, causa preservada.
+	if !fakeOp.transicionarLlamado {
+		t.Fatal("debió reenviar la transición a operacion")
+	}
+	if string(fakeOp.transicionarRecibioBody.AEstado) != "CANCELADO" {
+		t.Errorf("a_estado reenviado = %q, se esperaba CANCELADO", fakeOp.transicionarRecibioBody.AEstado)
+	}
+	if fakeOp.transicionarRecibioBody.Causa == nil || *fakeOp.transicionarRecibioBody.Causa != "ya no necesito el servicio" {
+		t.Errorf("causa reenviada = %v, se esperaba el motivo", fakeOp.transicionarRecibioBody.Causa)
+	}
+	// La respuesta es la vista de cliente (ViajeSeguimiento), no el detalle interno.
+	var got bffclient.ViajeSeguimiento
+	decodificarCuerpo(t, rec, &got)
+	if got.Id != id {
+		t.Errorf("id en la vista = %v, se esperaba %v", got.Id, id)
+	}
+}
+
+// TestTransicionarViajeClientePropagaErrorDeOperacion — un 404 de operacion
+// (viaje ajeno, por el aislamiento por tenant) se propaga como 404; no se
+// compone vista.
+func TestTransicionarViajeClientePropagaErrorDeOperacion(t *testing.T) {
+	fakeOp := &fakeOperacion{
+		transicionarErr: platformerrors.NewNoEncontrado("operacion: viaje no encontrado"),
+	}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	id := uuid.New()
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("motivo")},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaCliente})
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, se esperaba 404 propagado de operacion; cuerpo: %s", rec.Code, rec.Body.String())
 	}
 }

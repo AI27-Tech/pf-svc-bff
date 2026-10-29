@@ -63,6 +63,12 @@ type OperacionPort interface {
 	// Viaje descargado, que bff descarta (la respuesta al cliente es el
 	// expediente ya compuesto).
 	RegistrarDescargaViaje(ctx context.Context, id opclient.Id) (*opclient.Viaje, error)
+	// TransicionarViaje reenvia una transicion a operacion.transicionarViaje
+	// (E9-T7). operacion es la unica autoridad: valida la arista, aplica el
+	// aislamiento por tenant (cliente solo su viaje, DEC-112) y la facultad
+	// (cliente solo CANCELADO/RECHAZADO_POR_CLIENTE, DEC-111). Devuelve el Viaje
+	// plano; el handler recompone la vista de seguimiento con ObtenerViaje.
+	TransicionarViaje(ctx context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error)
 }
 
 // MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia

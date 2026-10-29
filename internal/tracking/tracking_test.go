@@ -290,7 +290,7 @@ func TestIncidenciaResueltaDesapareceDeActivas(t *testing.T) {
 	if len(segAntes.Incidencias) != 1 {
 		t.Fatalf("antes de resolver, el cliente debe ver 1 incidencia, dio %d", len(segAntes.Incidencias))
 	}
-	if segAntes.Incidencias[0].Estado != bffclient.IncidenciaCuradaEstadoEnAtencion {
+	if segAntes.Incidencias[0].Estado != bffclient.EnAtencion {
 		t.Errorf("estado = %q, se esperaba en_atencion", segAntes.Incidencias[0].Estado)
 	}
 
@@ -312,7 +312,7 @@ func TestIncidenciaEstadoResueltaSeTraduce(t *testing.T) {
 	if len(seg.Incidencias) != 1 {
 		t.Fatalf("se esperaba 1 incidencia, dio %d", len(seg.Incidencias))
 	}
-	if seg.Incidencias[0].Estado != bffclient.IncidenciaCuradaEstadoResuelta {
+	if seg.Incidencias[0].Estado != bffclient.Resuelta {
 		t.Errorf("estado = %q, se esperaba resuelta", seg.Incidencias[0].Estado)
 	}
 }
