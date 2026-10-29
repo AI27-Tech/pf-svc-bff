@@ -181,6 +181,59 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 	escribirJSON(w, http.StatusOK, tracking.Componer(*detalle))
 }
 
+// TransicionarViajeCliente delega en operacion.transicionarViaje la única acción
+// de escritura del cliente sobre el ciclo de vida del viaje: cancelar o rechazar
+// (E9-T7 / DEC-111). Solo audiencia Cliente: un actor interno recibe 403 antes de
+// reenviar. operacion es la única autoridad de transición y aplica el aislamiento
+// por tenant (el cliente solo su viaje, DEC-112; viaje ajeno -> 404) y la facultad
+// (solo CANCELADO/RECHAZADO_POR_CLIENTE) más el motivo obligatorio (DEC-111). El
+// bff solo filtra audiencia y reenvía; no replica el grafo. Devuelve la vista de
+// seguimiento del cliente (como seguirViaje), nunca el detalle interno (DEC-006):
+// operacion.transicionarViaje responde el Viaje plano, así que se recompone la
+// vista leyendo el detalle con ObtenerViaje. Ruta protegida.
+func (h *Handlers) TransicionarViajeCliente(w http.ResponseWriter, r *http.Request) {
+	// Audiencia Cliente ANTES de reenviar: esta superficie es del portal cliente.
+	// Un actor interno transiciona por la superficie interna, no por aquí.
+	claims := autorizacion.ClaimsDe(r.Context())
+	if claims == nil {
+		escribirError(w, platformerrors.NewNoAutorizado("bff: transicionarViajeCliente: sin claims"))
+		return
+	}
+	if claims.Audiencia != auth.AudienciaCliente {
+		escribirError(w, errores.NewProhibido("bff: transicionarViajeCliente: solo para el portal del cliente"))
+		return
+	}
+
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: transicionarViajeCliente: id invalido"))
+		return
+	}
+
+	var cuerpo bffclient.TransicionEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	// operacion valida arista, aislamiento, facultad y motivo. Su 400/401/403/404/
+	// 409 se propaga tal cual. El Viaje devuelto se descarta: la respuesta al
+	// cliente es la vista de seguimiento recompuesta.
+	if _, err := h.deps.Operacion.TransicionarViaje(ctx, id, aTransicionOperacion(cuerpo)); err != nil {
+		escribirError(w, err)
+		return
+	}
+	// Recompone la vista de cliente tras aplicar la transición, sin exponer el
+	// estado canónico ni las condiciones (DEC-006), igual que seguirViaje.
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, tracking.Componer(*detalle))
+}
+
 // --- Descarga del expediente de UN viaje (E6-T3 / E6-HU-026, DEC-022 #7) ----
 
 // DescargarViaje compone el expediente de descarga de UN viaje leyendo de
@@ -614,6 +667,17 @@ func aCrearViajeOperacion(e bffclient.CrearViajeEntrada) opclient.CrearViajeEntr
 		Destinos:          destinos,
 		FechaHoraServicio: e.FechaHoraServicio,
 		TipoServicio:      e.TipoServicio,
+	}
+}
+
+// aTransicionOperacion traduce la TransicionEntrada de bff a la de operacion.
+// Difieren solo en el tipo de `a_estado`: string libre en bff (el bff no replica
+// el enum, DEC-104), EstadoViaje tipado en operacion. La validación de la arista
+// y del motivo vive en operacion, no aquí.
+func aTransicionOperacion(e bffclient.TransicionEntrada) opclient.TransicionEntrada {
+	return opclient.TransicionEntrada{
+		AEstado: opclient.EstadoViaje(e.AEstado),
+		Causa:   e.Causa,
 	}
 }
 
