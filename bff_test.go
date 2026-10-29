@@ -30,6 +30,7 @@ var operacionesFaseA = []rutaContrato{
 	{"crearViaje", http.MethodPost, "/api/v1/viajes", true},
 	{"listarViajes", http.MethodGet, "/api/v1/viajes", true},
 	{"seguirViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000", true},
+	{"transicionarViajeCliente", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/transiciones-cliente", true},
 	{"listarClientes", http.MethodGet, "/api/v1/clientes", true},
 	{"descargarViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/descarga", true},
 }

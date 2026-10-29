@@ -150,3 +150,21 @@ func (a *OperacionHTTP) RegistrarDescargaViaje(ctx context.Context, id opclient.
 	}
 	return resp.JSON200, nil
 }
+
+// TransicionarViaje reenvia una transicion a operacion.transicionarViaje (E9-T7).
+// operacion es la unica autoridad: valida la arista contra la maquina de estados
+// y aplica el aislamiento por tenant y la facultad del cliente (DEC-111/112).
+// Devuelve el Viaje plano; el handler recompone la vista de seguimiento.
+func (a *OperacionHTTP) TransicionarViaje(ctx context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.TransicionarViajeWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("TransicionarViaje", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("TransicionarViaje", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}

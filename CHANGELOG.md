@@ -1,5 +1,19 @@
 # CHANGELOG
 
+## 2026-10-29 — E9-T7: transición del viaje para audiencia Cliente (cancelar / rechazar)
+
+**Resumen:** sube el pin de `pf-pkg-contracts` de `v0.1.0-tracer.20` a `v0.1.0-tracer.23` y monta la ruta nueva `POST /api/v1/viajes/{id}/transiciones-cliente` (`transicionarViajeCliente`). El handler exige audiencia Cliente (un actor interno recibe 403 antes de reenviar) y delega en `operacion.transicionarViaje`, que es la única autoridad de transición: valida la arista, aplica el aislamiento por tenant (el cliente solo su viaje, DEC-112; viaje ajeno → 404) y la facultad (solo `CANCELADO`/`RECHAZADO_POR_CLIENTE`, DEC-111) más el motivo obligatorio. `operacion.transicionarViaje` devuelve el `Viaje` plano, así que el handler recompone la vista de seguimiento del cliente (`ViajeSeguimiento`) con `ObtenerViaje`, igual que `seguirViaje`; nunca expone el estado canónico ni las condiciones (DEC-006).
+
+**Para quién:** desbloquea E9-T7 en el portal cliente (`pf-web-frontend-client`), que ahora puede construir los botones de cancelar y rechazar sobre la ruta nueva. Cierra la secuencia de tres pasos de DEC-111: guarda en `operacion` (PR #60) → contrato `tracer.23` (PR #82) → esta superficie en el `bff`.
+
+**Cambios:** `OperacionPort` gana `TransicionarViaje`; adaptador `OperacionHTTP` lo implementa (POST con cuerpo, patrón de `CrearViaje`); handler `TransicionarViajeCliente` con check de audiencia y recomposición de la vista; mapeo `aTransicionOperacion` (traduce `a_estado` string del bff a `EstadoViaje` de operacion); ruta en `Routes()` y entrada en la prueba de contrato `operacionesFaseA`.
+
+**Bump de pin (git-workflow §8):** subir el pin renombró las constantes del enum `IncidenciaCurada.estado` en el cliente generado: `IncidenciaCuradaEstadoEnAtencion`/`...Resuelta` → `EnAtencion`/`Resuelta` (el generador dejó el nombre corto al añadirse otros enums con el valor `en_atencion` en olas intermedias). El valor de wire (`"en_atencion"`/`"resuelta"`) no cambió. Se actualizó el único uso afectado, en `internal/tracking/tracking_test.go`. Sin cambio de comportamiento.
+
+**Nota 401 vs 403:** el contrato declara `403` para la arista no permitida, pero `operacion` responde `401` en ese caso (la plataforma aún no tiene un `403` propio; pendiente ratificado, DEC-111). El check de audiencia del propio `bff` sí devuelve 403 (vía `errores.NewProhibido`).
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...` y `go test ./...` en verde. Tests nuevos del handler: audiencia interna → 403, sin claims → 401, cliente cancela → 200 con reenvío traducido y vista de seguimiento, error de operacion (404) propagado.
+
 ## 2026-10-27 — tracer.20: `segundo_factor` (TOTP) en el login del `bff` (E8-T5)
 
 **Resumen:** sube el pin de `pf-pkg-contracts` a `v0.1.0-tracer.20` y propaga `segundo_factor` en `iniciarSesion`. tracer.20 agrega `CredencialesEntrada.segundo_factor` (TOTP, `nullable`, opcional V1) al contrato del `bff`, espejo del campo que ya existe en `identidad`. El `bff` lo transporta; el IdP (Keycloak) lo valida (DEC-031/DEC-071, ADR 13).
