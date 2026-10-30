@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## 2026-10-30 — Ruta interna de transición de viaje (E8-T14, cierre del servicio)
+
+**Para quién:** el frontend interno, que ya cierra el viaje contra el bff real (`POST /api/v1/viajes/{id}/transiciones`) en vez de un mock, y completa la matriz end-to-end de la tarea 12 (400 / 401 / 403 / 409 con código / 409 genérico / carrera). Para quien mantiene el bff: una ruta interna espejo de la de cliente, con audiencia invertida y respuesta de detalle interno.
+
+**Resumen:** monta la superficie interna `transicionarViaje` de `bff.yaml` (hasta ahora fuera por scaffolding de fase (a)). Exige audiencia Interna (un actor Cliente recibe 403; los clientes transicionan por `/transiciones-cliente`). `operacion` sigue siendo la única autoridad: valida la arista, la facultad de cierre, el `motivo_cierre` (DEC-113) y los conflictos (409 con código); el bff no replica el grafo. A diferencia de la vista de cliente, la respuesta es el detalle interno (`ViajeDetalle`: estado canónico + condiciones), no la vista de seguimiento que oculta ambos (DEC-006).
+
+**Fix de causa raíz incluido:** `aTransicionOperacion` descartaba `motivo_cierre`. El bug estaba latente porque el cliente nunca cierra; la ruta interna lo destapa. Sin el fix, toda transición a `CERRADO` que pasa por el bff llegaría a `operacion` sin motivo y sería un 400. El adapter es compartido por ambas rutas, así que el fix cubre cualquier cierre futuro.
+
+**Cambios:**
+- `internal/agregacion/handlers.go`: handler `TransicionarViaje` (check audiencia Interna, reenvío, detalle interno recompuesto); mapper nuevo `aViajeDetalle` (`opclient.ViajeDetalle` → `bffclient.ViajeDetalle`); `aTransicionOperacion` ahora propaga `MotivoCierre`.
+- `bff.go`: ruta montada; comentario de `Deps.Operacion` corregido (ya no dice "sin transiciones internas").
+- `internal/agregacion/ports.go`: doc de `OperacionPort` corregido.
+- `bff_test.go`: `transicionarViaje` en la prueba de contrato.
+- `internal/agregacion/handlers_test.go`: audiencia cliente → 403, sin claims → 401, 200 con detalle interno (estado y condiciones visibles), reenvío de `motivo_cierre`, 409 propagado.
+
+**Alcance:** solo `/transiciones`. `/detalle`, `/eta`, `/asignacion` quedan para sus propias historias.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./... && go build ./cmd/api`, `go test ./...`, `arch-test` en verde. Sin bump de pin de contratos (los tipos ya estaban en `tracer.28`).
+
 ## 2026-10-30 — Tipos de servicio para el wizard de solicitud del cliente (E9-T4)
 
 **Para quién:** el portal cliente, que ya puede poblar el selector de tipo de servicio del wizard de solicitud (E1-HU-001) contra el bff real, sin llamar a `catalogos` directo.
