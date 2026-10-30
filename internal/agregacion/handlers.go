@@ -631,17 +631,19 @@ func mensajesParamsDe(r *http.Request) (msgclient.ListarMensajesParams, error) {
 }
 
 // aConversacionCliente recorta el Conversacion de mensajeria a la vista de
-// cliente: viaje_id, estado y atendida (derivada de atendida_en != null,
-// DEC-014). Descarta bandeja, reclamo, pool, secuencias y cliente_id.
+// cliente: viaje_id, estado, atendida (derivada de atendida_en != null,
+// DEC-014) y ultima_secuencia (cursor de dominio del bootstrap, ADR 28 §2).
+// Descarta bandeja, reclamo, pool, version_reclamo y cliente_id.
 func aConversacionCliente(c *msgclient.Conversacion) bffclient.ConversacionCliente {
 	if c == nil {
 		return bffclient.ConversacionCliente{}
 	}
 	atendida := c.AtendidaEn != nil
 	return bffclient.ConversacionCliente{
-		ViajeId:  c.ViajeId,
-		Estado:   bffclient.ConversacionClienteEstado(c.Estado),
-		Atendida: &atendida,
+		ViajeId:         c.ViajeId,
+		Estado:          bffclient.ConversacionClienteEstado(c.Estado),
+		Atendida:        &atendida,
+		UltimaSecuencia: int64(c.UltimaSecuencia),
 	}
 }
 
