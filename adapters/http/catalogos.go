@@ -67,3 +67,20 @@ func (a *CatalogosHTTP) ListarClientes(ctx context.Context, bearer string, param
 	}
 	return resp.JSON200, nil
 }
+
+// ListarTiposServicio reenvía a catalogos.listarValoresCatalogo fijando el tipo
+// tipos_servicio (E9-T4): el cliente no elige familia. Reenvía el cursor; el
+// filtro a solo-activos y el recorte a la vista de cliente los hace el handler.
+func (a *CatalogosHTTP) ListarTiposServicio(ctx context.Context, bearer string, params catclient.ListarValoresCatalogoParams) (*catclient.PaginaValoresCatalogo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarValoresCatalogoWithResponse(ctx, catclient.TiposServicio, &params, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarTiposServicio", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarTiposServicio", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}

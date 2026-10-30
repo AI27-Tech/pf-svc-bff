@@ -160,6 +160,28 @@ func (h *Handlers) ListarClientes(w http.ResponseWriter, r *http.Request) {
 	escribirJSON(w, http.StatusOK, aClientesBff(pagina))
 }
 
+// ListarTiposServicio delega en catalogos.listarValoresCatalogo (tipo fijo
+// tipos_servicio) para poblar el selector del wizard de solicitud del cliente
+// (E9-T4). Solo audiencia Cliente. Filtra a los valores activo y recorta a la
+// vista mínima (codigo, etiqueta): un valor inactivo no es seleccionable y el
+// cliente no ve estado/version. Ruta protegida.
+func (h *Handlers) ListarTiposServicio(w http.ResponseWriter, r *http.Request) {
+	if !h.soloCliente(w, r, "listarTiposServicio") {
+		return
+	}
+	var params catclient.ListarValoresCatalogoParams
+	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
+		c := catclient.Cursor(cursor)
+		params.Cursor = &c
+	}
+	pagina, err := h.deps.Catalogos.ListarTiposServicio(r.Context(), r.Header.Get("Authorization"), params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aTiposServicioCliente(pagina))
+}
+
 // SeguirViaje delega en operacion.obtenerViaje y compone los hitos V1 por
 // polling (ADR 27). El cliente recibe el hito traducido, nunca el token tecnico
 // (E2-T2). Ruta protegida.
@@ -786,6 +808,30 @@ func aEmergenciasCliente(p *msgclient.PaginaEmergencias) bffclient.EmergenciasCl
 		if c.Estado == msgclient.EstadoEmergenciaAbierta || c.Estado == msgclient.EstadoEmergenciaEnAtencion {
 			out.EmergenciaActiva = true
 		}
+	}
+	return out
+}
+
+// aTiposServicioCliente recorta la PaginaValoresCatalogo de catalogos a la vista
+// de cliente, filtrando a los valores activo (un inactivo no es seleccionable) y
+// dejando solo codigo y etiqueta. Items nunca nil (lista vacía estable). El
+// cursor se conserva, pero como se descartan los inactivos una página puede
+// quedar más corta que la de catalogos; el cliente pide la siguiente con el
+// cursor igual.
+func aTiposServicioCliente(p *catclient.PaginaValoresCatalogo) bffclient.PaginaTiposServicio {
+	out := bffclient.PaginaTiposServicio{Items: []bffclient.TipoServicioCliente{}}
+	if p == nil {
+		return out
+	}
+	out.CursorSiguiente = p.CursorSiguiente
+	for _, v := range p.Items {
+		if v.Estado != catclient.ValorCatalogoEstadoActivo {
+			continue
+		}
+		out.Items = append(out.Items, bffclient.TipoServicioCliente{
+			Codigo:   v.Codigo,
+			Etiqueta: v.Etiqueta,
+		})
 	}
 	return out
 }

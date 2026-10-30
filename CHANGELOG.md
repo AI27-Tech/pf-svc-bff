@@ -1,5 +1,23 @@
 # CHANGELOG
 
+## 2026-10-30 — Tipos de servicio para el wizard de solicitud del cliente (E9-T4)
+
+**Para quién:** el portal cliente, que ya puede poblar el selector de tipo de servicio del wizard de solicitud (E1-HU-001) contra el bff real, sin llamar a `catalogos` directo.
+
+**Resumen:** sube el pin de contratos a `tracer.28` y monta `GET /api/v1/catalogos/tipos-servicio` (`listarTiposServicio`). El handler reenvía a `catalogos.listarValoresCatalogo` con el tipo fijo `tipos_servicio` (el cliente no elige familia), filtra a los valores `activo` y recorta a la vista mínima `TipoServicioCliente` (`codigo`, `etiqueta`). Solo audiencia Cliente: un actor interno recibe 403 antes de reenviar.
+
+**Por qué el tipo es fijo:** de las cinco familias de `TipoCatalogo`, solo `tipos_servicio` es de cara al cliente; las otras (`zonas_riesgo`, etc.) son operativas internas. El bff no expone el `{tipo}` genérico al cliente. Por DEC-017, rutas/marcas/kit son texto libre, no catálogo.
+
+**Cambios:**
+- `internal/agregacion/ports.go`: `CatalogosPort` gana `ListarTiposServicio`.
+- `adapters/http/catalogos.go`: adaptador que fija `catclient.TiposServicio` y reenvía el cursor.
+- `internal/agregacion/handlers.go`: handler `ListarTiposServicio` (check audiencia Cliente) y traductor `aTiposServicioCliente` (filtra activos, recorta).
+- `bff.go`: ruta montada.
+- `bff_test.go`: `listarTiposServicio` en la prueba de contrato.
+- `internal/agregacion/catalogos_test.go`: nuevo. Afirma el filtro de inactivos, el recorte y el rechazo de audiencia interna.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./... && go build ./cmd/api`, `go test ./...`, `arch-test` en verde. Bump tracer.27→.28 sin renombres de enum (forma aditiva).
+
 ## 2026-10-30 — Ola C: 403 y código de máquina de conflictos propagados al cliente
 
 **Para quién:** el portal cliente y el panel interno, que ahora reciben el código específico del conflicto (no `conflicto` genérico) y un 403 real cuando les falta la facultad. Para quien mantiene el bff: desaparece el tipo `Prohibido` local; el 403 vive en la plataforma.

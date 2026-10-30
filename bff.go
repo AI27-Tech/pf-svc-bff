@@ -167,6 +167,10 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	// Selector de clientes para crear un viaje por Operación (E8-T11): reenvío a
 	// catalogos, solo clientes activos del alcance del jefe_operativo.
 	mux.Handle("GET /api/v1/clientes", protegido(http.HandlerFunc(m.handlers.ListarClientes)))
+	// Catálogo de tipos de servicio para el wizard de solicitud del cliente
+	// (E9-T4): reenvío a catalogos (tipo fijo tipos_servicio), solo valores
+	// activos, vista mínima. Audiencia Cliente.
+	mux.Handle("GET /api/v1/catalogos/tipos-servicio", protegido(http.HandlerFunc(m.handlers.ListarTiposServicio)))
 	// Descarga del expediente de UN viaje (E6-T3, solo interno). El check de
 	// audiencia vive en el handler, antes de componer nada; aqui solo se protege
 	// con verificacion local + tombstones como las demas rutas.
