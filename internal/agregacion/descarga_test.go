@@ -11,7 +11,6 @@ import (
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
-	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
 	"github.com/google/uuid"
 )
 
@@ -264,10 +263,9 @@ func TestDescargarViajeNoFiltraDatosExcluidos(t *testing.T) {
 	}
 }
 
-// platformErrProhibido devuelve el error de bff para un 403 aguas abajo (lo que
-// produce el adaptador al traducir un 403 de operacion: internal/errores.
-// Prohibido -> 403). Simula el rechazo por alcance de operacion sin acoplar el
-// test al adaptador HTTP.
+// platformErrProhibido devuelve el error de 403 aguas abajo (lo que produce el
+// adaptador al traducir un 403 de operacion con platformerrors.NewProhibido).
+// Simula el rechazo por alcance de operacion sin acoplar el test al adaptador HTTP.
 func platformErrProhibido() error {
-	return errores.NewProhibido("operacion: fuera de alcance")
+	return platformerrors.NewProhibido("operacion: fuera de alcance")
 }
