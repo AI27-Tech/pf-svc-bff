@@ -425,6 +425,182 @@ func (h *Handlers) AgregarNotaEmergenciaCliente(w http.ResponseWriter, r *http.R
 	w.WriteHeader(http.StatusCreated)
 }
 
+// --- Conversación del viaje para el portal cliente (E9-T8, DEC-029) --------
+// La conversación se identifica por el viaje (DEC-029): el {id} de la ruta es el
+// viaje. Solo audiencia Cliente (un actor interno usa la superficie interna de
+// mensajería, no esta). bff propaga el Bearer; mensajeria autoriza por los claims
+// y devuelve el Conversacion/Mensaje completos; el bff recorta a la vista de
+// cliente (sin actor_real, rol, bandeja, reclamo), igual que emergencias.
+
+// soloCliente exige audiencia Cliente antes de reenviar. Devuelve false y ya
+// escribió el error (401 sin claims, 403 si es interno) cuando no procede.
+func (h *Handlers) soloCliente(w http.ResponseWriter, r *http.Request, op string) bool {
+	claims := autorizacion.ClaimsDe(r.Context())
+	if claims == nil {
+		escribirError(w, platformerrors.NewNoAutorizado("bff: %s: sin claims", op))
+		return false
+	}
+	if claims.Audiencia != auth.AudienciaCliente {
+		escribirError(w, errores.NewProhibido("bff: %s: solo para el portal del cliente", op))
+		return false
+	}
+	return true
+}
+
+// ObtenerConversacionViaje delega en mensajeria.obtenerConversacion (por viaje) y
+// recorta a la vista de cliente. Ruta protegida, solo audiencia Cliente.
+func (h *Handlers) ObtenerConversacionViaje(w http.ResponseWriter, r *http.Request) {
+	if !h.soloCliente(w, r, "obtenerConversacionViaje") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: obtenerConversacionViaje: id invalido"))
+		return
+	}
+	conv, err := h.deps.Mensajeria.ObtenerConversacion(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aConversacionCliente(conv))
+}
+
+// ListarMensajesViaje delega en mensajeria.listarMensajes. Pagina por secuencia
+// (antes_de/despues_de/limite); reenvía los params tal cual y recorta cada
+// mensaje a la vista de cliente. Ruta protegida, solo audiencia Cliente.
+func (h *Handlers) ListarMensajesViaje(w http.ResponseWriter, r *http.Request) {
+	if !h.soloCliente(w, r, "listarMensajesViaje") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: listarMensajesViaje: id invalido"))
+		return
+	}
+	params, err := mensajesParamsDe(r)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	pagina, err := h.deps.Mensajeria.ListarMensajes(r.Context(), r.Header.Get("Authorization"), id, params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aPaginaMensajesCliente(pagina))
+}
+
+// EnviarMensajeViaje delega en mensajeria.enviarMensaje (idempotente por
+// client_message_id). Devuelve 201 (nuevo) o 200 (reintento) con la vista de
+// cliente del mensaje; el 409 solo_lectura de mensajeria se propaga. Ruta
+// protegida, solo audiencia Cliente.
+func (h *Handlers) EnviarMensajeViaje(w http.ResponseWriter, r *http.Request) {
+	if !h.soloCliente(w, r, "enviarMensajeViaje") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: enviarMensajeViaje: id invalido"))
+		return
+	}
+	var cuerpo bffclient.EnviarMensajeClienteEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	msg, err := h.deps.Mensajeria.EnviarMensaje(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.EnviarMensajeEntrada{
+			ClientMessageId: cuerpo.ClientMessageId,
+			Cuerpo:          cuerpo.Cuerpo,
+		})
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	// shortcut: 201 también en el reintento idempotente (mensajeria distingue 200);
+	// actualizar si el frontend llega a ramificar sobre 200 vs 201. El cuerpo es
+	// el mismo Mensaje en ambos casos, así que el cliente lo trata igual.
+	escribirJSON(w, http.StatusCreated, aMensajeCliente(msg))
+}
+
+// mensajesParamsDe lee la paginación por secuencia (antes_de/despues_de/limite).
+// Ausentes = sin filtro (mensajeria devuelve los más recientes). Mal formados =
+// error de validación. No valida la exclusión mutua antes_de/despues_de: eso lo
+// hace mensajeria, única autoridad de la historia.
+func mensajesParamsDe(r *http.Request) (msgclient.ListarMensajesParams, error) {
+	var p msgclient.ListarMensajesParams
+	q := r.URL.Query()
+	if s := q.Get("antes_de"); s != "" {
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return p, platformerrors.NewValidacion("bff: listarMensajesViaje: antes_de invalido: %v", err)
+		}
+		p.AntesDe = &v
+	}
+	if s := q.Get("despues_de"); s != "" {
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return p, platformerrors.NewValidacion("bff: listarMensajesViaje: despues_de invalido: %v", err)
+		}
+		p.DespuesDe = &v
+	}
+	if s := q.Get("limite"); s != "" {
+		v, err := strconv.Atoi(s)
+		if err != nil {
+			return p, platformerrors.NewValidacion("bff: listarMensajesViaje: limite invalido: %v", err)
+		}
+		p.Limite = &v
+	}
+	return p, nil
+}
+
+// aConversacionCliente recorta el Conversacion de mensajeria a la vista de
+// cliente: viaje_id, estado y atendida (derivada de atendida_en != null,
+// DEC-014). Descarta bandeja, reclamo, pool, secuencias y cliente_id.
+func aConversacionCliente(c *msgclient.Conversacion) bffclient.ConversacionCliente {
+	if c == nil {
+		return bffclient.ConversacionCliente{}
+	}
+	atendida := c.AtendidaEn != nil
+	return bffclient.ConversacionCliente{
+		ViajeId:  c.ViajeId,
+		Estado:   bffclient.ConversacionClienteEstado(c.Estado),
+		Atendida: &atendida,
+	}
+}
+
+// aMensajeCliente recorta el Mensaje de mensajeria a la vista de cliente. NUNCA
+// expone actor_real ni rol interno: de_cliente deriva de la audiencia del autor
+// (Cliente = lo escribió el cliente; Interno = AI27, "AI27 Operations", DEC-021).
+func aMensajeCliente(m *msgclient.Mensaje) bffclient.MensajeCliente {
+	if m == nil {
+		return bffclient.MensajeCliente{}
+	}
+	return bffclient.MensajeCliente{
+		Id:        m.Id,
+		Secuencia: m.Secuencia,
+		Cuerpo:    m.Cuerpo,
+		EnviadoEn: m.CreadoEn,
+		DeCliente: m.AudienciaAutor == msgclient.AudienciaCliente,
+	}
+}
+
+// aPaginaMensajesCliente recorta la PaginaMensajes a la vista de cliente,
+// conservando hay_mas (paginación por secuencia). Items nunca nil.
+func aPaginaMensajesCliente(p *msgclient.PaginaMensajes) bffclient.PaginaMensajesCliente {
+	out := bffclient.PaginaMensajesCliente{Items: []bffclient.MensajeCliente{}}
+	if p == nil {
+		return out
+	}
+	out.HayMas = p.HayMas
+	for _, m := range p.Items {
+		mm := m
+		out.Items = append(out.Items, aMensajeCliente(&mm))
+	}
+	return out
+}
+
 // --- Atención interna del caso (panel de Reacción, E7/tracer.17) -----------
 // El panel interno (Reacción, supervisor, coordinador) lista y atiende el caso.
 // bff propaga el Bearer y reenvía a mensajeria, que autoriza por los claims

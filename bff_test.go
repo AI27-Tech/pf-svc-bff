@@ -20,9 +20,10 @@ type rutaContrato struct {
 	protegida   bool
 }
 
-// operacionesFaseA es la lista de las SEIS operaciones de la fase (a) de
-// bff.yaml (05-bff.md, tabla (a)). La prueba compara las rutas montadas contra
-// esta lista: si una falta o sobra, falla.
+// operacionesFaseA lista las rutas base del portal que New().Routes debe montar
+// (05-bff.md). Arrancó como las seis de la fase (a) y crece con cada superficie
+// del portal cliente (transición, descarga, conversación). La prueba comprueba
+// que cada una resuelve un patrón montado.
 var operacionesFaseA = []rutaContrato{
 	{"iniciarSesion", http.MethodPost, "/api/v1/sesion", false},
 	{"cerrarSesion", http.MethodDelete, "/api/v1/sesion", true},
@@ -33,6 +34,9 @@ var operacionesFaseA = []rutaContrato{
 	{"transicionarViajeCliente", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/transiciones-cliente", true},
 	{"listarClientes", http.MethodGet, "/api/v1/clientes", true},
 	{"descargarViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/descarga", true},
+	{"obtenerConversacionViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/conversacion", true},
+	{"listarMensajesViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/conversacion/mensajes", true},
+	{"enviarMensajeViaje", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/conversacion/mensajes", true},
 }
 
 // TestRutasMontadasContraContrato verifica que New().Routes monta exactamente
