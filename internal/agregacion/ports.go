@@ -103,6 +103,21 @@ type MensajeriaPort interface {
 	ResolverEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.ResolverEmergenciaJSONRequestBody) (*msgclient.CasoEmergencia, error)
 	// CerrarEmergencia cierra el caso (sin cuerpo). Devuelve el caso cerrado.
 	CerrarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error)
+
+	// --- Conversación del viaje para el portal cliente (E9-T8) -----------
+	// La conversación se identifica por el viaje (DEC-029): el id de ruta de
+	// mensajeria es el viaje_id. bff propaga el Bearer; mensajeria autoriza por
+	// los claims y proyecta por audiencia (vista Cliente, ADR 21 §6).
+
+	// ObtenerConversacion lee la conversación del viaje. mensajeria devuelve el
+	// Conversacion completo; el bff recorta a la vista de cliente.
+	ObtenerConversacion(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.Conversacion, error)
+	// ListarMensajes lee una página de la historia, paginada por secuencia
+	// (antes_de/despues_de/limite; catch-up con despues_de tras reconexión).
+	ListarMensajes(ctx context.Context, bearer string, viajeID msgclient.Id, params msgclient.ListarMensajesParams) (*msgclient.PaginaMensajes, error)
+	// EnviarMensaje publica un mensaje del cliente (idempotente por
+	// client_message_id). Devuelve el Mensaje; 200 (reintento) o 201 (nuevo).
+	EnviarMensaje(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.EnviarMensajeEntrada) (*msgclient.Mensaje, error)
 }
 
 // CatalogosPort es la arista a catalogos: el selector de clientes para crear un
