@@ -37,8 +37,8 @@ type IdentidadPort interface {
 }
 
 // OperacionPort es la arista a operacion: crear viaje, listar por alcance,
-// obtener detalle, leer bitacora y auditoria, y dejar el rastro de la descarga.
-// Sin transiciones internas ni asignacion (bff.md (f)).
+// obtener detalle, transicionar, leer bitacora y auditoria, y dejar el rastro de
+// la descarga. Sin asignacion (bff.md (f)).
 type OperacionPort interface {
 	// CrearViaje reenvia la creacion; el estado inicial lo fija el rol del token
 	// en operacion (DEC-026), bff no decide.
