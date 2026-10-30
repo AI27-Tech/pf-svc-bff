@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 2026-10-30 — Cursor de dominio en el bootstrap de la conversación del cliente (E9-T8, ADR 28 §2)
+
+**Para quién:** el portal cliente, que al abrir una conversación recibe ahora `ultima_secuencia` y con ella pide el catch-up (`listarMensajes?despues_de=`), sin derivar el cursor del último mensaje listado.
+
+**Resumen:** sube el pin de contratos a `tracer.29` y mapea `c.UltimaSecuencia` de `mensajeria` al campo `ultima_secuencia` de `ConversacionCliente`, que la vista de cliente recortaba. Es el cursor de dominio que ADR 28 §2 exige en la respuesta de bootstrap. `mensajeria` siempre lo calcula (0 si la conversación no tiene mensajes).
+
+**Contexto:** cierra el gap de §2 de la **opción A de DT-01** (`docs/DEUDA-TECNICA.md` del repo umbral). El push vivo por SSE (opción C) sigue aplazado.
+
+**Cambios:**
+- `internal/agregacion/handlers.go`: `aConversacionCliente` mapea `UltimaSecuencia: int64(c.UltimaSecuencia)`; comentario actualizado (ya no "descarta secuencias").
+- `internal/agregacion/conversacion_test.go`: `TestObtenerConversacionRecortaYPropagaToken` afirma `ultima_secuencia == 7`.
+- `go.mod`/`go.sum`: pin de contratos tracer.28→.29.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go test ./...`, `arch-test` en verde. Bump tracer.28→.29 sin renombres de enum (forma aditiva).
+
 ## 2026-10-30 — Ruta interna de transición de viaje (E8-T14, cierre del servicio)
 
 **Para quién:** el frontend interno, que ya cierra el viaje contra el bff real (`POST /api/v1/viajes/{id}/transiciones`) en vez de un mock, y completa la matriz end-to-end de la tarea 12 (400 / 401 / 403 / 409 con código / 409 genérico / carrera). Para quien mantiene el bff: una ruta interna espejo de la de cliente, con audiencia invertida y respuesta de detalle interno.
