@@ -8,40 +8,10 @@ package errores
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 )
-
-// Prohibido es el error de bff para el 403 del contrato (acceso prohibido por
-// audiencia o alcance). La taxonomia de la plataforma NO distingue 403 de 401
-// (CategoryNoAutorizado mapea a 401), pero el contrato de bff tiene una
-// respuesta Prohibido (403) separada de NoAutorizado (401): p. ej. la descarga
-// del expediente rechaza al cliente (audiencia) antes de componer nada (E6-T3),
-// y propaga el 403 de alcance de operacion. Por eso bff lo modela localmente, en
-// su capa de borde, sin tocar la taxonomia compartida. escribirError lo reconoce
-// y escribe 403; EsProhibido permite detectarlo al propagar errores aguas abajo.
-type Prohibido struct {
-	Mensaje string
-}
-
-func (e *Prohibido) Error() string { return e.Mensaje }
-
-// NewProhibido crea un error Prohibido (403) con el mensaje dado.
-func NewProhibido(msg string, args ...any) *Prohibido {
-	return &Prohibido{Mensaje: fmt.Sprintf(msg, args...)}
-}
-
-// EsProhibido indica si err (o algo que envuelve) es un Prohibido de bff.
-func EsProhibido(err error) bool {
-	var p *Prohibido
-	return errors.As(err, &p)
-}
-
-// CodigoProhibido es el codigo de maquina del Error de bff.yaml para el 403.
-// snake_case, estable; los consumidores ramifican sobre el, no sobre el mensaje.
-const CodigoProhibido = "prohibido"
 
 // DeStatus traduce un codigo HTTP de una respuesta aguas abajo a la taxonomia de
 // la plataforma. op nombra la operacion para el contexto del error.
@@ -49,17 +19,32 @@ const CodigoProhibido = "prohibido"
 // Mapea tal cual los codigos de negocio (401/403/404/409/400), y trata 5xx y
 // cualquier otro inesperado como ROTO: un fallo del propio aguas-abajo, no una
 // ausencia de dato. El llamador decide si lo degrada (bff.md (d)).
+//
+// No conserva el codigo de maquina del cuerpo aguas abajo: para propagarlo (p.
+// ej. el 409 de cierre con cierre_anticipado_requiere_incidencia), el adaptador
+// usa DeRespuesta con el Codigo del Error tipado.
 func DeStatus(op string, status int) error {
+	return DeRespuesta(op, status, "")
+}
+
+// DeRespuesta es DeStatus con el codigo de maquina del cuerpo aguas abajo. Si
+// codigo no esta vacio y el status es 409, el conflicto conserva ese codigo para
+// que el cliente lo distinga (Ola C). Para los demas status el codigo se ignora:
+// la categoria ya fija el codigo generico en el borde.
+func DeRespuesta(op string, status int, codigo string) error {
 	switch status {
 	case http.StatusUnauthorized:
 		return platformerrors.NewNoAutorizado("bff: %s: no autorizado aguas abajo", op)
 	case http.StatusForbidden:
-		// 403 de alcance aguas abajo (operacion). Se propaga como 403, no como
-		// 401: el contrato de bff distingue Prohibido de NoAutorizado (E6-T3).
-		return NewProhibido("bff: %s: prohibido aguas abajo", op)
+		// 403 de facultad/alcance aguas abajo (operacion). Se propaga como 403,
+		// no como 401: la plataforma ya distingue Prohibido de NoAutorizado.
+		return platformerrors.NewProhibido("bff: %s: prohibido aguas abajo", op)
 	case http.StatusNotFound:
 		return platformerrors.NewNoEncontrado("bff: %s: no encontrado aguas abajo", op)
 	case http.StatusConflict:
+		if codigo != "" {
+			return platformerrors.NewConflictoCodigo(codigo, "bff: %s: conflicto aguas abajo", op)
+		}
 		return platformerrors.NewConflicto("bff: %s: conflicto aguas abajo", op)
 	case http.StatusBadRequest:
 		return platformerrors.NewValidacion("bff: %s: solicitud invalida aguas abajo", op)

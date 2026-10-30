@@ -164,7 +164,14 @@ func (a *OperacionHTTP) TransicionarViaje(ctx context.Context, id opclient.Id, b
 		return nil, errores.DeTransporte("TransicionarViaje", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("TransicionarViaje", resp.StatusCode())
+		// Propaga el codigo de maquina del 409 (p. ej.
+		// cierre_anticipado_requiere_incidencia) para que el cliente lo distinga
+		// (Ola C). Los demas status no llevan codigo propio.
+		var codigo string
+		if resp.JSON409 != nil {
+			codigo = resp.JSON409.Codigo
+		}
+		return nil, errores.DeRespuesta("TransicionarViaje", resp.StatusCode(), codigo)
 	}
 	return resp.JSON200, nil
 }
