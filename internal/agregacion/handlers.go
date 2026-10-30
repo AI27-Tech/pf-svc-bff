@@ -255,6 +255,60 @@ func (h *Handlers) TransicionarViajeCliente(w http.ResponseWriter, r *http.Reque
 	escribirJSON(w, http.StatusOK, tracking.Componer(*detalle))
 }
 
+// TransicionarViaje registra una transición de estado validada desde la
+// superficie interna (E8-T14, bff.yaml: transicionarViaje). Espejo de
+// TransicionarViajeCliente con audiencia invertida: exige audiencia Interna (un
+// actor Cliente recibe 403; los clientes transicionan por su propia ruta). Igual
+// que la de cliente, operacion es la única autoridad: valida la arista, la
+// facultad de cierre, el motivo_cierre (DEC-113) y los conflictos (409 con
+// codigo); el bff no replica el grafo. A diferencia de la vista de cliente, la
+// respuesta es el detalle interno (ViajeDetalle: estado canónico + condiciones),
+// no la vista de seguimiento que oculta ambos (DEC-006). operacion.transicionarViaje
+// responde el Viaje plano, así que se recompone el detalle leyendo ObtenerViaje.
+// Ruta protegida.
+func (h *Handlers) TransicionarViaje(w http.ResponseWriter, r *http.Request) {
+	// Audiencia Interna ANTES de reenviar: esta superficie es del panel interno.
+	// Un cliente transiciona por /transiciones-cliente, no por aquí.
+	claims := autorizacion.ClaimsDe(r.Context())
+	if claims == nil {
+		escribirError(w, platformerrors.NewNoAutorizado("bff: transicionarViaje: sin claims"))
+		return
+	}
+	if claims.Audiencia != auth.AudienciaInterno {
+		escribirError(w, platformerrors.NewProhibido("bff: transicionarViaje: solo para la superficie interna"))
+		return
+	}
+
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: transicionarViaje: id invalido"))
+		return
+	}
+
+	var cuerpo bffclient.TransicionEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	// operacion valida arista, facultad, motivo de cierre y conflictos. Su
+	// 400/401/403/404/409 se propaga tal cual. El Viaje devuelto se descarta: la
+	// respuesta es el detalle interno recompuesto.
+	if _, err := h.deps.Operacion.TransicionarViaje(ctx, id, aTransicionOperacion(cuerpo)); err != nil {
+		escribirError(w, err)
+		return
+	}
+	// Recompone el detalle interno tras aplicar la transición, con el estado
+	// canónico y las condiciones (al revés de la vista de cliente, DEC-006).
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aViajeDetalle(*detalle))
+}
+
 // --- Descarga del expediente de UN viaje (E6-T3 / E6-HU-026, DEC-022 #7) ----
 
 // DescargarViaje compone el expediente de descarga de UN viaje leyendo de
@@ -894,11 +948,62 @@ func aCrearViajeOperacion(e bffclient.CrearViajeEntrada) opclient.CrearViajeEntr
 // aTransicionOperacion traduce la TransicionEntrada de bff a la de operacion.
 // Difieren solo en el tipo de `a_estado`: string libre en bff (el bff no replica
 // el enum, DEC-104), EstadoViaje tipado en operacion. La validación de la arista
-// y del motivo vive en operacion, no aquí.
+// y del motivo vive en operacion, no aquí. `motivo_cierre` (DEC-113) se propaga:
+// operacion lo exige al cerrar e ignora en otras aristas; sin él, el cierre que
+// pasa por el bff llegaría a operacion sin motivo y sería 400.
 func aTransicionOperacion(e bffclient.TransicionEntrada) opclient.TransicionEntrada {
-	return opclient.TransicionEntrada{
+	t := opclient.TransicionEntrada{
 		AEstado: opclient.EstadoViaje(e.AEstado),
 		Causa:   e.Causa,
+	}
+	if e.MotivoCierre != nil {
+		m := opclient.MotivoCierre(*e.MotivoCierre)
+		t.MotivoCierre = &m
+	}
+	return t
+}
+
+// aViajeDetalle traduce el ViajeDetalle de operacion a la vista interna de bff.
+// A diferencia de la vista de cliente (tracking.Componer -> ViajeSeguimiento, que
+// oculta estado y condiciones por DEC-006), la superficie interna expone el
+// estado canónico y las condiciones ortogonales tal cual (bff.yaml:
+// transicionarViaje -> ViajeDetalle). Copia campo a campo; el bff no deriva nada
+// aquí (el `stale` del ETA es solo de la vista de cliente). IncidenciasActivas es
+// consumo interno de la composición de cliente, no entra en esta vista.
+func aViajeDetalle(d opclient.ViajeDetalle) bffclient.ViajeDetalle {
+	v := d.Viaje
+	destinos := make([]struct {
+		Arribo      *bool   `json:"arribo,omitempty"`
+		Nombre      string  `json:"nombre"`
+		NumeroEnvio *string `json:"numero_envio,omitempty"`
+	}, len(v.Destinos))
+	for i, dest := range v.Destinos {
+		destinos[i].Arribo = dest.Arribo
+		destinos[i].Nombre = dest.Nombre
+		destinos[i].NumeroEnvio = dest.NumeroEnvio
+	}
+
+	condiciones := make([]bffclient.CondicionAbierta, len(d.CondicionesActivas))
+	for i, c := range d.CondicionesActivas {
+		condiciones[i] = bffclient.CondicionAbierta{
+			AbiertaEn: c.AbiertaEn,
+			Tipo:      bffclient.CondicionAbiertaTipo(c.Tipo),
+		}
+	}
+
+	return bffclient.ViajeDetalle{
+		Viaje: bffclient.ViajeInterno{
+			Id:                v.Id,
+			Origen:            v.Origen,
+			Estado:            string(v.Estado),
+			ClienteId:         v.ClienteId,
+			CreadoEn:          v.CreadoEn,
+			EtaEstimado:       v.EtaEstimado,
+			FechaHoraServicio: v.FechaHoraServicio,
+			TipoServicio:      v.TipoServicio,
+			Destinos:          destinos,
+		},
+		CondicionesActivas: condiciones,
 	}
 }
 

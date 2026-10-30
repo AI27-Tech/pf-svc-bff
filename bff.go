@@ -48,8 +48,8 @@ type Deps struct {
 	// el snapshot de revocadas y la consulta de sesion para el fallback de ADR 26.
 	// bff NUNCA verifica tokens contra identidad (eso es local, con auth.Verifier).
 	Identidad IdentidadPort
-	// Operacion es la arista a operacion: crear viaje, listar por alcance y obtener
-	// detalle. Sin transiciones internas ni asignacion (bff.md (f)).
+	// Operacion es la arista a operacion: crear viaje, listar por alcance, obtener
+	// detalle y transicionar (cliente E9-T7, interna E8-T14). Sin asignacion (bff.md (f)).
 	Operacion OperacionPort
 	// Mensajeria es la arista a mensajeria: el portal cliente de emergencia
 	// (E7/tracer.17). Primera arista bff→mensajeria; propaga el token del usuario.
@@ -164,6 +164,11 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	// handler exige audiencia Cliente y reenvia a operacion, que es la unica
 	// autoridad de transicion (aislamiento por tenant + facultad + motivo).
 	mux.Handle("POST /api/v1/viajes/{id}/transiciones-cliente", protegido(http.HandlerFunc(m.handlers.TransicionarViajeCliente)))
+	// Registrar una transición de estado validada desde la superficie interna
+	// (E8-T14, cierre del servicio). El handler exige audiencia Interna y reenvia
+	// a operacion, única autoridad de transición (arista + facultad de cierre +
+	// motivo_cierre DEC-113). Devuelve el detalle interno, no la vista de cliente.
+	mux.Handle("POST /api/v1/viajes/{id}/transiciones", protegido(http.HandlerFunc(m.handlers.TransicionarViaje)))
 	// Selector de clientes para crear un viaje por Operación (E8-T11): reenvío a
 	// catalogos, solo clientes activos del alcance del jefe_operativo.
 	mux.Handle("GET /api/v1/clientes", protegido(http.HandlerFunc(m.handlers.ListarClientes)))
