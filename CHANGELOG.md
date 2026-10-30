@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 2026-10-29 — E8-T14: pin de contrato a tracer.24 (motivo_cierre tipado)
+
+**Resumen:** sube el pin de `pf-pkg-contracts` de `tracer.23` a `tracer.24`. La ola trae `motivo_cierre` (enum) en `TransicionEntrada` y los códigos de 409 del cierre. El `bff` no requiere cambios de código: `transicionarViaje` ya reenvía el cuerpo `TransicionEntrada` completo a `operacion`, que valida el motivo (A.1/A.2 de E8-T14); el `bff` solo transporta el campo nuevo.
+
+**Nota:** los códigos de 409 del cierre que el contrato ahora declara (`cierre_anticipado_solo_por_incidencia`, etc.) todavía NO llegan distinguibles al cliente: `internal/errores.DeStatus` aplana el 409 a `conflicto`. Propagarlos es la tarea de plataforma diferida (A3/B1, DEC-111), no esta entrada.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go test ./...` en verde tras el bump. Sin renombres de enum (git-workflow §8).
+
 ## 2026-10-29 — E9-T7: transición del viaje para audiencia Cliente (cancelar / rechazar)
 
 **Resumen:** sube el pin de `pf-pkg-contracts` de `v0.1.0-tracer.20` a `v0.1.0-tracer.23` y monta la ruta nueva `POST /api/v1/viajes/{id}/transiciones-cliente` (`transicionarViajeCliente`). El handler exige audiencia Cliente (un actor interno recibe 403 antes de reenviar) y delega en `operacion.transicionarViaje`, que es la única autoridad de transición: valida la arista, aplica el aislamiento por tenant (el cliente solo su viaje, DEC-112; viaje ajeno → 404) y la facultad (solo `CANCELADO`/`RECHAZADO_POR_CLIENTE`, DEC-111) más el motivo obligatorio. `operacion.transicionarViaje` devuelve el `Viaje` plano, así que el handler recompone la vista de seguimiento del cliente (`ViajeSeguimiento`) con `ObtenerViaje`, igual que `seguirViaje`; nunca expone el estado canónico ni las condiciones (DEC-006).
