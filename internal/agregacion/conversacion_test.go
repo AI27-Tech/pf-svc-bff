@@ -41,8 +41,9 @@ func peticionConversacion(t *testing.T, handler http.HandlerFunc, metodo, url st
 }
 
 // TestObtenerConversacionRecortaYPropagaToken: la vista de cliente lleva
-// viaje_id, estado y atendida (derivada de atendida_en != null), descarta todo lo
-// interno (cliente_id, bandeja, reclamo, secuencias) y propaga el Bearer.
+// viaje_id, estado, atendida (derivada de atendida_en != null) y ultima_secuencia
+// (cursor de dominio del bootstrap, ADR 28 §2), descarta lo interno (cliente_id,
+// bandeja, reclamo, version_reclamo) y propaga el Bearer.
 func TestObtenerConversacionRecortaYPropagaToken(t *testing.T) {
 	atendida := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
 	fake := &fakeMensajeria{conversacion: &msgclient.Conversacion{
@@ -72,6 +73,9 @@ func TestObtenerConversacionRecortaYPropagaToken(t *testing.T) {
 	}
 	if out.Atendida == nil || !*out.Atendida {
 		t.Errorf("atendida debe ser true (atendida_en presente): %+v", out.Atendida)
+	}
+	if out.UltimaSecuencia != 7 {
+		t.Errorf("ultima_secuencia = %d, want 7 (cursor de dominio, ADR 28 §2)", out.UltimaSecuencia)
 	}
 	if fake.bearerRecibido != "Bearer tok-conv" {
 		t.Errorf("no se propagó el Bearer: %q", fake.bearerRecibido)
