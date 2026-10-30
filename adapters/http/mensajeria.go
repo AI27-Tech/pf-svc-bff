@@ -240,5 +240,11 @@ func (a *MensajeriaHTTP) EnviarMensaje(ctx context.Context, bearer string, viaje
 	if resp.JSON200 != nil {
 		return resp.JSON200, nil
 	}
-	return nil, errores.DeStatus("EnviarMensaje", resp.StatusCode())
+	// Propaga el codigo del 409 (conversacion_solo_lectura tras el cierre,
+	// DEC-030/DEC-041) para que el cliente lo distinga (Ola C).
+	var codigo string
+	if resp.JSON409 != nil {
+		codigo = resp.JSON409.Codigo
+	}
+	return nil, errores.DeRespuesta("EnviarMensaje", resp.StatusCode(), codigo)
 }

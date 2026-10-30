@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## 2026-10-30 — Ola C: 403 y código de máquina de conflictos propagados al cliente
+
+**Para quién:** el portal cliente y el panel interno, que ahora reciben el código específico del conflicto (no `conflicto` genérico) y un 403 real cuando les falta la facultad. Para quien mantiene el bff: desaparece el tipo `Prohibido` local; el 403 vive en la plataforma.
+
+**Resumen:** sube el pin de `pf-pkg-platform-go` a `v0.1.8` y el de `pf-pkg-contracts` a `v0.1.0-tracer.27`, y adopta la taxonomía de la Ola C. El `Prohibido` local del bff converge a `CategoryProhibido` de la plataforma; el 409 aguas abajo con código de máquina (p. ej. `cierre_anticipado_requiere_incidencia` de operacion, `conversacion_solo_lectura` de mensajeria) se propaga con ese código en vez de aplastarse a `conflicto`.
+
+**Cambios:**
+- `internal/errores`: se elimina el tipo `Prohibido`, `NewProhibido`, `EsProhibido` y `CodigoProhibido` (convergen a `platformerrors`). `DeStatus` pasa a delegar en `DeRespuesta(op, status, codigo)`; el 403 usa `platformerrors.NewProhibido` y el 409 con código usa `NewConflictoCodigo`.
+- `adapters/http/operacion.go`: `TransicionarViaje` lee `resp.JSON409.Codigo` y lo propaga.
+- `adapters/http/mensajeria.go`: `EnviarMensaje` propaga el código del 409 (`conversacion_solo_lectura`).
+- `internal/agregacion/handlers.go`: los tres `NewProhibido` locales pasan a `platformerrors.NewProhibido`; `escribirError` se simplifica a `AsCategory` + `CodigoDe` (un solo camino, sin caso especial de 403).
+- `internal/errores/errores_test.go`: nuevo. Afirma que el 409 con código lo conserva, el 409 sin código cae en `conflicto`, y el 403 da categoría Prohibido.
+- Pin de plataforma a `v0.1.8` y de contratos a `tracer.27` (tracer.26 quedó a medias; .27 es su republicación, forma idéntica).
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./... && go build ./cmd/api`, `go test ./...` y `arch-test` en verde. Sin renombres de enum (§8): el bump de contratos .26→.27 no cambió ninguna forma.
+
 ## 2026-10-30 — E9-T8 (B.2): conversación del viaje para el portal cliente
 
 **Resumen:** sube el pin de `pf-pkg-contracts` a `v0.1.0-tracer.26` y monta las tres rutas de la conversación del viaje para audiencia Cliente: `GET /api/v1/viajes/{id}/conversacion` (`obtenerConversacionViaje`), `GET` y `POST /api/v1/viajes/{id}/conversacion/mensajes` (`listarMensajesViaje`, `enviarMensajeViaje`). Segunda familia de la arista `bff→mensajeria` tras emergencias. La conversación se identifica por el viaje (DEC-029): el `{id}` de ruta es el viaje, que viaja como id a `mensajeria`.

@@ -16,7 +16,6 @@ import (
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
 	"github.com/AI27-Tech/pf-svc-bff/internal/descarga"
-	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tracking"
 	"github.com/google/uuid"
@@ -200,7 +199,7 @@ func (h *Handlers) TransicionarViajeCliente(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if claims.Audiencia != auth.AudienciaCliente {
-		escribirError(w, errores.NewProhibido("bff: transicionarViajeCliente: solo para el portal del cliente"))
+		escribirError(w, platformerrors.NewProhibido("bff: transicionarViajeCliente: solo para el portal del cliente"))
 		return
 	}
 
@@ -256,7 +255,7 @@ func (h *Handlers) DescargarViaje(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if claims.Audiencia != auth.AudienciaInterno {
-		escribirError(w, errores.NewProhibido("bff: descargarViaje: la descarga del expediente es solo para usuarios internos"))
+		escribirError(w, platformerrors.NewProhibido("bff: descargarViaje: la descarga del expediente es solo para usuarios internos"))
 		return
 	}
 
@@ -441,7 +440,7 @@ func (h *Handlers) soloCliente(w http.ResponseWriter, r *http.Request, op string
 		return false
 	}
 	if claims.Audiencia != auth.AudienciaCliente {
-		escribirError(w, errores.NewProhibido("bff: %s: solo para el portal del cliente", op))
+		escribirError(w, platformerrors.NewProhibido("bff: %s: solo para el portal del cliente", op))
 		return false
 	}
 	return true
@@ -881,23 +880,17 @@ func escribirJSON(w http.ResponseWriter, status int, v any) {
 
 // escribirError traduce un error de la taxonomia de la plataforma al Error de
 // bff.yaml y al status HTTP correspondiente. Reusa el mapeo de la plataforma
-// (Category.HTTPStatus y Category.String) en vez de duplicarlo. Un aguas-abajo
-// caido es degradado o roto, nunca no encontrado (bff.md (d)).
+// (Category.HTTPStatus y CodigoDe) en vez de duplicarlo. Un aguas-abajo caido es
+// degradado o roto, nunca no encontrado (bff.md (d)).
 //
-// El 403 (Prohibido) es el unico caso que no vive en la taxonomia de la
-// plataforma (que colapsa 403 en 401): el contrato de bff lo separa como
-// respuesta propia (E6-T3). Por eso se reconoce aqui, antes del mapeo general.
+// El 403 (Prohibido) y el codigo especifico de un conflicto ya viven en la
+// taxonomia de la plataforma (Ola C): CodigoDe emite el codigo del error si lo
+// trae, si no el generico de la categoria. No hay caso especial que reconocer
+// antes del mapeo general.
 func escribirError(w http.ResponseWriter, err error) {
-	if errores.EsProhibido(err) {
-		escribirJSON(w, http.StatusForbidden, bffclient.Error{
-			Codigo:  errores.CodigoProhibido,
-			Mensaje: err.Error(),
-		})
-		return
-	}
 	cat := platformerrors.AsCategory(err)
 	escribirJSON(w, cat.HTTPStatus(), bffclient.Error{
-		Codigo:  cat.String(),
+		Codigo:  platformerrors.CodigoDe(err),
 		Mensaje: err.Error(),
 	})
 }
