@@ -776,3 +776,138 @@ func TestTransicionarViajeClientePropagaErrorDeOperacion(t *testing.T) {
 		t.Fatalf("status = %d, se esperaba 404 propagado de operacion; cuerpo: %s", rec.Code, rec.Body.String())
 	}
 }
+
+// --- TransicionarViaje, superficie interna (E8-T14) ---
+
+// TestTransicionarViajeAudienciaClienteEs403 — un cliente no usa la superficie
+// interna: recibe 403 antes de reenviar a operacion. Espejo invertido de la
+// prueba de audiencia de la ruta de cliente.
+func TestTransicionarViajeAudienciaClienteEs403(t *testing.T) {
+	fakeOp := &fakeOperacion{}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	id := uuid.New()
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViaje, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CERRADO"},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaCliente})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, se esperaba 403 por audiencia cliente; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	if fakeOp.transicionarLlamado {
+		t.Error("no debió reenviar a operacion con audiencia cliente")
+	}
+}
+
+// TestTransicionarViajeSinClaimsEs401 — sin claims en el contexto, 401.
+func TestTransicionarViajeSinClaimsEs401(t *testing.T) {
+	fakeOp := &fakeOperacion{}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	id := uuid.New()
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViaje, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CERRADO"}, nil)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, se esperaba 401 sin claims; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	if fakeOp.transicionarLlamado {
+		t.Error("no debió reenviar a operacion sin claims")
+	}
+}
+
+// TestTransicionarViajeInterno200DevuelveDetalleInterno — el operador cierra: el
+// handler reenvía la transición a operacion y devuelve el detalle interno
+// (ViajeDetalle con estado canónico y condiciones), no la vista de cliente.
+func TestTransicionarViajeInterno200DevuelveDetalleInterno(t *testing.T) {
+	id := uuid.MustParse("77777777-7777-7777-7777-777777777777")
+	fakeOp := &fakeOperacion{
+		transicionarViaje: &opclient.Viaje{Id: id, Estado: opclient.EstadoViaje(estados.EstadoCerrado), Origen: "CDMX"},
+		detalle: &opclient.ViajeDetalle{
+			Viaje: opclient.Viaje{
+				Id:     id,
+				Estado: opclient.EstadoViaje(estados.EstadoCerrado),
+				Origen: "CDMX",
+			},
+			CondicionesActivas: []opclient.CondicionAbierta{
+				{Tipo: "INCIDENCIA", AbiertaEn: time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)},
+			},
+		},
+	}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViaje, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CERRADO"},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaInterno})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	if !fakeOp.transicionarLlamado {
+		t.Fatal("debió reenviar la transición a operacion")
+	}
+	// La respuesta es el detalle interno (ViajeDetalle), con estado canónico y
+	// condiciones visibles (al revés de la vista de cliente, DEC-006).
+	var got bffclient.ViajeDetalle
+	decodificarCuerpo(t, rec, &got)
+	if got.Viaje.Id != id {
+		t.Errorf("id en el detalle = %v, se esperaba %v", got.Viaje.Id, id)
+	}
+	if got.Viaje.Estado != string(estados.EstadoCerrado) {
+		t.Errorf("estado canónico = %q, se esperaba CERRADO (el detalle interno no lo oculta)", got.Viaje.Estado)
+	}
+	if len(got.CondicionesActivas) != 1 || got.CondicionesActivas[0].Tipo != "INCIDENCIA" {
+		t.Errorf("condiciones = %v, se esperaba una INCIDENCIA visible", got.CondicionesActivas)
+	}
+}
+
+// TestTransicionarViajeReenviaMotivoCierre — el cierre a CERRADO lleva
+// motivo_cierre (DEC-113); el adapter aTransicionOperacion debe propagarlo a
+// operacion, o el cierre que pasa por el bff sería un 400. Prueba del fix del
+// adapter compartido.
+func TestTransicionarViajeReenviaMotivoCierre(t *testing.T) {
+	id := uuid.MustParse("88888888-8888-8888-8888-888888888888")
+	fakeOp := &fakeOperacion{
+		transicionarViaje: &opclient.Viaje{Id: id, Estado: opclient.EstadoViaje(estados.EstadoCerrado), Origen: "CDMX"},
+		detalle: &opclient.ViajeDetalle{
+			Viaje:              opclient.Viaje{Id: id, Estado: opclient.EstadoViaje(estados.EstadoCerrado), Origen: "CDMX"},
+			CondicionesActivas: []opclient.CondicionAbierta{},
+		},
+	}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	motivo := bffclient.PorIncidencia
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViaje, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CERRADO", MotivoCierre: &motivo},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaInterno})
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+	got := fakeOp.transicionarRecibioBody.MotivoCierre
+	if got == nil {
+		t.Fatal("el adapter descartó motivo_cierre: operacion lo recibiría nil y el cierre sería 400")
+	}
+	if *got != opclient.PorIncidencia {
+		t.Errorf("motivo_cierre reenviado = %q, se esperaba por_incidencia", *got)
+	}
+}
+
+// TestTransicionarViajeInternoPropagaConflicto409 — un 409 con codigo de maquina
+// de operacion (p.ej. cierre_anticipado_requiere_incidencia) se propaga tal cual;
+// no se compone detalle.
+func TestTransicionarViajeInternoPropagaConflicto409(t *testing.T) {
+	fakeOp := &fakeOperacion{
+		transicionarErr: platformerrors.NewConflicto("operacion: cierre anticipado requiere incidencia"),
+	}
+	h := NewHandlers(Deps{Operacion: fakeOp})
+
+	id := uuid.New()
+	rec := hacerPeticionPostConPathID(t, h.TransicionarViaje, id.String(),
+		bffclient.TransicionEntrada{AEstado: "CERRADO"},
+		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaInterno})
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, se esperaba 409 propagado de operacion; cuerpo: %s", rec.Code, rec.Body.String())
+	}
+}
