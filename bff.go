@@ -175,6 +175,13 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaCliente)))
 
+	// Conversación del viaje para el portal cliente (E9-T8, DEC-029): obtener la
+	// conversación, listar la historia por secuencia y enviar. mensajeria autoriza
+	// por claims; bff propaga el Bearer, exige audiencia Cliente y recorta la vista.
+	mux.Handle("GET /api/v1/viajes/{id}/conversacion", protegido(http.HandlerFunc(m.handlers.ObtenerConversacionViaje)))
+	mux.Handle("GET /api/v1/viajes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajesViaje)))
+	mux.Handle("POST /api/v1/viajes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.EnviarMensajeViaje)))
+
 	// Carril interno de emergencia (panel de Reacción, E7/tracer.17): listar con
 	// vista completa y las cinco acciones de atención. mensajeria autoriza por
 	// claims; bff propaga el Bearer.

@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## 2026-10-30 — E9-T8 (B.2): conversación del viaje para el portal cliente
+
+**Resumen:** sube el pin de `pf-pkg-contracts` a `v0.1.0-tracer.26` y monta las tres rutas de la conversación del viaje para audiencia Cliente: `GET /api/v1/viajes/{id}/conversacion` (`obtenerConversacionViaje`), `GET` y `POST /api/v1/viajes/{id}/conversacion/mensajes` (`listarMensajesViaje`, `enviarMensajeViaje`). Segunda familia de la arista `bff→mensajeria` tras emergencias. La conversación se identifica por el viaje (DEC-029): el `{id}` de ruta es el viaje, que viaja como id a `mensajeria`.
+
+**Forma de la vista de cliente:** los handlers exigen audiencia Cliente (un actor interno recibe 403 antes de reenviar), propagan el Bearer y recortan la respuesta de `mensajeria` a la vista de cliente:
+- `ConversacionCliente`: `viaje_id`, `estado`, `atendida` (derivada de `atendida_en != null`, DEC-014). Descarta `cliente_id`, bandeja, reclamo, pool y secuencias.
+- `MensajeCliente`: `id`, `secuencia`, `cuerpo`, `enviado_en` (← `creado_en`), `de_cliente` (derivado de `audiencia_autor == Cliente`). NUNCA `actor_real` ni rol interno; AI27 se presenta como "AI27 Operations" (DEC-021).
+- Envío idempotente por `client_message_id`; el bff no manda `version_reclamo_esperada` ni `motivo_override` (superficie interna).
+
+**Paginación por secuencia:** `listarMensajesViaje` reenvía `antes_de`/`despues_de`/`limite` tal cual a `mensajeria.listarMensajes` y conserva `hay_mas` en la respuesta (paginación por secuencia de dominio, no cursor opaco: habilita el catch-up del chat tras reconexión, Addendum §9). Esto es lo que corrigió `tracer.26`.
+
+**Cambios:** `MensajeriaPort` gana `ObtenerConversacion`/`ListarMensajes`/`EnviarMensaje`; adaptador `MensajeriaHTTP` los implementa (mismo patrón de presupuesto/Bearer/traducción de error que emergencias); handlers `ObtenerConversacionViaje`/`ListarMensajesViaje`/`EnviarMensajeViaje` con helper `soloCliente` y mapeos `aConversacionCliente`/`aMensajeCliente`/`aPaginaMensajesCliente`; rutas en `Routes()`; tres entradas en la prueba de contrato `operacionesFaseA`; tests de handler nuevos (`conversacion_test.go`) que cubren el recorte, la propagación de secuencia y el rechazo de audiencia interna.
+
+**Shortcut:** `enviarMensajeViaje` responde 201 también en el reintento idempotente (`mensajeria` distingue 200); el cuerpo es el mismo mensaje. Actualizar si el frontend llega a ramificar sobre 200 vs 201.
+
+**Bump de pin (git-workflow §8):** subir el pin a `tracer.26` revirtió el nombre de las constantes del enum `IncidenciaCurada.estado`: `EnAtencion`/`Resuelta` → `IncidenciaCuradaEstadoEnAtencion`/`...Resuelta` (la ola añadió otro enum que deshizo la colisión de nombre corto). Valor de wire sin cambio. Se actualizaron los dos usos en `internal/tracking/tracking_test.go`. Sin cambio de comportamiento.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./... && go build ./cmd/api`, `go test ./...` y `arch-test` en verde.
+
 ## 2026-10-29 — E8-T14: pin de contrato a tracer.24 (motivo_cierre tipado)
 
 **Resumen:** sube el pin de `pf-pkg-contracts` de `tracer.23` a `tracer.24`. La ola trae `motivo_cierre` (enum) en `TransicionEntrada` y los códigos de 409 del cierre. El `bff` no requiere cambios de código: `transicionarViaje` ya reenvía el cuerpo `TransicionEntrada` completo a `operacion`, que valida el motivo (A.1/A.2 de E8-T14); el `bff` solo transporta el campo nuevo.

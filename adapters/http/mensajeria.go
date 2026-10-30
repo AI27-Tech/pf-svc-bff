@@ -185,3 +185,60 @@ func (a *MensajeriaHTTP) CerrarEmergencia(ctx context.Context, bearer string, vi
 	}
 	return resp.JSON200, nil
 }
+
+// --- Conversación del viaje para el portal cliente (E9-T8) -----------------
+// La conversación se identifica por el viaje (DEC-029): el id de ruta es el
+// viaje_id. Misma mecánica que emergencias: presupuesto, propagación del Bearer
+// y traducción de error. mensajeria autoriza por los claims (ADR 21 §6).
+
+// ObtenerConversacion reenvía a mensajeria.obtenerConversacion. Devuelve el
+// Conversacion completo; el handler lo recorta a la vista de cliente.
+func (a *MensajeriaHTTP) ObtenerConversacion(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.Conversacion, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ObtenerConversacionWithResponse(ctx, viajeID, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ObtenerConversacion", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ObtenerConversacion", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ListarMensajes reenvía a mensajeria.listarMensajes. Pagina por secuencia
+// (antes_de/despues_de/limite); la respuesta trae hay_mas, no cursor.
+func (a *MensajeriaHTTP) ListarMensajes(ctx context.Context, bearer string, viajeID msgclient.Id, params msgclient.ListarMensajesParams) (*msgclient.PaginaMensajes, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarMensajesWithResponse(ctx, viajeID, &params, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarMensajes", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarMensajes", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// EnviarMensaje reenvía a mensajeria.enviarMensaje (idempotente por
+// client_message_id). 200 (reintento) o 201 (nuevo) traen el mensaje; el 409
+// (solo lectura tras el cierre) lo traduce DeStatus a conflicto.
+func (a *MensajeriaHTTP) EnviarMensaje(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.EnviarMensajeEntrada) (*msgclient.Mensaje, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.EnviarMensajeWithResponse(ctx, viajeID, body, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("EnviarMensaje", err)
+	}
+	if resp.JSON201 != nil {
+		return resp.JSON201, nil
+	}
+	if resp.JSON200 != nil {
+		return resp.JSON200, nil
+	}
+	return nil, errores.DeStatus("EnviarMensaje", resp.StatusCode())
+}
