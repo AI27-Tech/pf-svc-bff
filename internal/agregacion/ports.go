@@ -131,6 +131,10 @@ type CatalogosPort interface {
 	// ListarClientes lista una página de clientes activos. El cursor opaco viaja
 	// en params; el filtro de solo-activos lo resuelve catalogos en servidor.
 	ListarClientes(ctx context.Context, bearer string, params catclient.ListarClientesParams) (*catclient.PaginaClientes, error)
+	// ListarTiposServicio lista una página del catálogo tipos_servicio para el
+	// selector del wizard de solicitud del cliente (E9-T4). El bff fija el tipo
+	// (el cliente no elige familia) y filtra a los activo al recortar.
+	ListarTiposServicio(ctx context.Context, bearer string, params catclient.ListarValoresCatalogoParams) (*catclient.PaginaValoresCatalogo, error)
 }
 
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New
