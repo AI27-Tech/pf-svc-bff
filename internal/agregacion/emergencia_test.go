@@ -26,6 +26,11 @@ type fakeMensajeria struct {
 	versionRecibida       *msgclient.VersionReclamo
 	transferenciaRecibida *msgclient.TransferenciaEntrada
 	resolucionRecibida    *msgclient.ResolucionEmergenciaEntrada
+	conversacion          *msgclient.Conversacion
+	paginaMensajes        *msgclient.PaginaMensajes
+	mensaje               *msgclient.Mensaje
+	paramsRecibidos       *msgclient.ListarMensajesParams
+	envioRecibido         *msgclient.EnviarMensajeEntrada
 }
 
 func (f *fakeMensajeria) ListarEmergencias(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.PaginaEmergencias, error) {
@@ -65,6 +70,21 @@ func (f *fakeMensajeria) ResolverEmergencia(ctx context.Context, bearer string, 
 func (f *fakeMensajeria) CerrarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error) {
 	f.bearerRecibido = bearer
 	return f.caso, f.err
+}
+
+func (f *fakeMensajeria) ObtenerConversacion(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.Conversacion, error) {
+	f.bearerRecibido = bearer
+	return f.conversacion, f.err
+}
+func (f *fakeMensajeria) ListarMensajes(ctx context.Context, bearer string, viajeID msgclient.Id, params msgclient.ListarMensajesParams) (*msgclient.PaginaMensajes, error) {
+	f.bearerRecibido = bearer
+	f.paramsRecibidos = &params
+	return f.paginaMensajes, f.err
+}
+func (f *fakeMensajeria) EnviarMensaje(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.EnviarMensajeEntrada) (*msgclient.Mensaje, error) {
+	f.bearerRecibido = bearer
+	f.envioRecibido = &body
+	return f.mensaje, f.err
 }
 
 const viajeID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
