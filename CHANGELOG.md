@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 2026-10-30 — Completar listarTrabajoBandeja: reenvío real a la bandeja sin {id} (E8-T15)
+
+**Para quién:** el portal interno, que ya puede listar el trabajo de su bandeja (`GET /api/v1/bandeja/trabajo`) contra el bff real. Cierra la última operación que quedaba como stub en E8-T15.
+
+**Resumen:** sube el pin de contratos a `tracer.31` y reemplaza el stub `Roto` de `ListarTrabajoBandeja` (adaptador de mensajeria) por el reenvío real a `mensajeria.listarTrabajoMiBandeja`, la ruta sin `{id}` que resuelve la bandeja del sujeto por su membresía (opción A de E8-T15). mensajeria es la autoridad; el bff propaga el Bearer.
+
+**Cambios:**
+- `adapters/http/mensajeria.go`: `ListarTrabajoBandeja` reenvía a `ListarTrabajoMiBandejaWithResponse` (antes devolvía `Roto`). Se retira el import `platformerrors`, ya sin uso.
+- `internal/agregacion/ports.go`, `handlers.go`, `emergencia_test.go`: el tipo de params pasa de `ListarTrabajoBandejaParams` a `ListarTrabajoMiBandejaParams` (la operación que de verdad se invoca; mismos campos cursor/desde_revision).
+- `go.mod`: pin de `api-client-go` a `v0.1.0-tracer.31`.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go test ./...`, `arch-test` en verde. El bump de pin no trajo renombres de enum. El handler y sus pruebas (`bandeja_test.go`) no cambian: ya afirmaban el comportamiento con el fake; ahora el adaptador cumple su reenvío.
+
+**Con esto E8-T15 queda cerrado en sus tres repos:** contrato (`tracer.30` + `tracer.31`), mensajeria (resolución de la bandeja del sujeto) y bff (10 operaciones internas, todas funcionales). Pendiente aparte: la brecha 3 (nombres mostrables y `listarDestinosTransferencia`).
+
 ## 2026-10-30 — Superficie interna de bandeja y conversación del pool en el bff (E8-T15)
 
 **Para quién:** el portal interno (`pf-web-frontend-internal`), que ya atiende la conversación del pool por la puerta única del bff (reclamar, liberar, transferir, marcar atendida, recibos y la conversación interna completa), sin llamar a `mensajeria` directo. Para quien mantiene el bff: 10 handlers internos que reenvían a `mensajeria` y mappers que exponen la vista interna completa.

@@ -975,8 +975,8 @@ func (h *Handlers) RegistrarReciboLeido(w http.ResponseWriter, r *http.Request) 
 // trabajoBandejaParamsDe lee cursor (paginación) y desde_revision (catch-up) del
 // query. Ausentes = bootstrap (mensajeria devuelve la cola completa). desde_revision
 // mal formado = error de validación.
-func trabajoBandejaParamsDe(r *http.Request) (msgclient.ListarTrabajoBandejaParams, error) {
-	var p msgclient.ListarTrabajoBandejaParams
+func trabajoBandejaParamsDe(r *http.Request) (msgclient.ListarTrabajoMiBandejaParams, error) {
+	var p msgclient.ListarTrabajoMiBandejaParams
 	q := r.URL.Query()
 	if s := q.Get("cursor"); s != "" {
 		c := msgclient.CursorPagina(s)

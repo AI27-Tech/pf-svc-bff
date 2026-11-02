@@ -34,7 +34,7 @@ type fakeMensajeria struct {
 
 	// Bandeja y conversación interna del pool (E8-T15).
 	trabajo              *msgclient.TrabajoBandeja
-	paramsBandeja        *msgclient.ListarTrabajoBandejaParams
+	paramsBandeja        *msgclient.ListarTrabajoMiBandejaParams
 	reclamarRecibido     *msgclient.VersionEsperadaEntrada
 	liberarRecibido      *msgclient.LiberarReclamoParams
 	transferenciaConvRec *msgclient.TransferenciaEntrada
@@ -100,7 +100,7 @@ func (f *fakeMensajeria) EnviarMensaje(ctx context.Context, bearer string, viaje
 // --- Bandeja y conversación interna del pool (E8-T15) ---
 // ObtenerConversacion/ListarMensajes/EnviarMensaje se reutilizan de arriba.
 
-func (f *fakeMensajeria) ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoBandejaParams) (*msgclient.TrabajoBandeja, error) {
+func (f *fakeMensajeria) ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoMiBandejaParams) (*msgclient.TrabajoBandeja, error) {
 	f.bearerRecibido = bearer
 	f.paramsBandeja = &params
 	return f.trabajo, f.err

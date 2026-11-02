@@ -7,7 +7,6 @@ import (
 	"time"
 
 	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
-	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	bff "github.com/AI27-Tech/pf-svc-bff"
 	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
 )
@@ -257,17 +256,22 @@ func (a *MensajeriaHTTP) EnviarMensaje(ctx context.Context, bearer string, viaje
 // interna reutiliza los de arriba (devuelven el tipo completo; el recorte a vista
 // de cliente vive en el handler de cliente, no aquí).
 
-// ListarTrabajoBandeja NO puede reenviar todavía: el bff expone la ruta sin
-// `{id}` (cola única, DEC-103) pero mensajeria.listarTrabajoBandeja exige el
-// `{id}` de la bandeja en la ruta, y el bff no tiene de dónde sacarlo (los claims
-// no traen bandeja_id; DEC-053). El contrato de mensajeria debe exponer una ruta
-// que resuelva la bandeja del pool por la membresía del token (opción A del
-// cierre de E8-T15). El handler y la ruta del bff ya existen; solo falta este
-// reenvío.
-// shortcut: devuelve Roto hasta que mensajeria exponga la ruta sin `{id}`;
-// completar el reenvío al subir el pin a la ola que la traiga.
-func (a *MensajeriaHTTP) ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoBandejaParams) (*msgclient.TrabajoBandeja, error) {
-	return nil, platformerrors.NewRoto("bff: listarTrabajoBandeja: mensajeria aún no expone la bandeja del pool sin {id} (E8-T15, opción A)")
+// ListarTrabajoBandeja reenvía a mensajeria.listarTrabajoMiBandeja: la cola del
+// pool del sujeto, SIN {id} (cola única, DEC-103). mensajeria resuelve la bandeja
+// del sujeto por su membresía; el bff solo propaga el Bearer. El 409 fuera de
+// ventana (stream_resync_required) lo traduce DeStatus.
+func (a *MensajeriaHTTP) ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoMiBandejaParams) (*msgclient.TrabajoBandeja, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarTrabajoMiBandejaWithResponse(ctx, &params, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarTrabajoBandeja", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarTrabajoBandeja", resp.StatusCode())
+	}
+	return resp.JSON200, nil
 }
 
 // ReclamarConversacion reenvía a mensajeria.reclamarConversacion. Devuelve el
