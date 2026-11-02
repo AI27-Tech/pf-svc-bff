@@ -132,7 +132,7 @@ type MensajeriaPort interface {
 	// ListarTrabajoBandeja lista el trabajo de la bandeja (bootstrap sin
 	// desde_revision, catch-up con él). El bff resuelve la bandeja del sujeto
 	// desde los claims (cola única, DEC-103); por eso NO recibe un id de bandeja.
-	ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoBandejaParams) (*msgclient.TrabajoBandeja, error)
+	ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoMiBandejaParams) (*msgclient.TrabajoBandeja, error)
 	// ReclamarConversacion toma la conversación para el sujeto del token
 	// (concurrencia optimista por version_esperada). Devuelve el reclamo abierto.
 	ReclamarConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) (*msgclient.Reclamo, error)
