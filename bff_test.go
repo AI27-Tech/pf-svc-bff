@@ -39,6 +39,18 @@ var operacionesFaseA = []rutaContrato{
 	{"obtenerConversacionViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/conversacion", true},
 	{"listarMensajesViaje", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/conversacion/mensajes", true},
 	{"enviarMensajeViaje", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/conversacion/mensajes", true},
+	// Bandeja y conversación interna del pool (E8-T15). La bandeja es cola única,
+	// sin {id}. El resto usa el UUID de ejemplo como las demás rutas con {id}/{rid}.
+	{"listarTrabajoBandeja", http.MethodGet, "/api/v1/bandeja/trabajo", true},
+	{"obtenerConversacion", http.MethodGet, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000", true},
+	{"listarMensajes", http.MethodGet, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/mensajes", true},
+	{"enviarMensaje", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/mensajes", true},
+	{"reclamarConversacion", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/reclamos", true},
+	{"liberarReclamo", http.MethodDelete, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/reclamos/00000000-0000-0000-0000-000000000000", true},
+	{"transferirConversacion", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/transferencias", true},
+	{"marcarAtendida", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/atendida", true},
+	{"registrarReciboEntregado", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/recibos/entregado", true},
+	{"registrarReciboLeido", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/recibos/leido", true},
 }
 
 // TestRutasMontadasContraContrato verifica que New().Routes monta exactamente

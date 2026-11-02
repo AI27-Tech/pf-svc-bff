@@ -678,6 +678,437 @@ func aPaginaMensajesCliente(p *msgclient.PaginaMensajes) bffclient.PaginaMensaje
 	return out
 }
 
+// --- Bandeja y conversación interna del pool (E8-T15, DEC-006 invertido) ---
+// Superficie interna del pool de Ejecutivos: bandeja de trabajo, reclamo,
+// transferencia, atención y recibos, más la conversación/mensajes reutilizados.
+// Todas exigen audiencia Interna (soloInterno). A diferencia de la vista de
+// cliente, el bff NO recorta la respuesta: la audiencia interna ve el
+// Conversacion/Mensaje completos (actor_real, reclamo, estado canónico). bff
+// propaga el Bearer; mensajeria autoriza por los claims (membresía efectiva en
+// el pool) y es la única autoridad de concurrencia (version_esperada).
+
+// soloInterno exige audiencia Interna antes de reenviar. Espejo de soloCliente:
+// devuelve false y ya escribió el error (401 sin claims, 403 si es Cliente)
+// cuando no procede.
+func (h *Handlers) soloInterno(w http.ResponseWriter, r *http.Request, op string) bool {
+	claims := autorizacion.ClaimsDe(r.Context())
+	if claims == nil {
+		escribirError(w, platformerrors.NewNoAutorizado("bff: %s: sin claims", op))
+		return false
+	}
+	if claims.Audiencia != auth.AudienciaInterno {
+		escribirError(w, platformerrors.NewProhibido("bff: %s: solo para la superficie interna", op))
+		return false
+	}
+	return true
+}
+
+// ListarTrabajoBandeja delega en mensajeria.listarTrabajoBandeja. Cola única: el
+// bff NO lee id de ruta; la bandeja del sujeto la resuelve mensajeria desde los
+// claims (DEC-103). Lee cursor (paginación) y desde_revision (catch-up) del
+// query. Devuelve el trabajo completo (sin recorte). Ruta protegida, solo Interna.
+func (h *Handlers) ListarTrabajoBandeja(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "listarTrabajoBandeja") {
+		return
+	}
+	params, err := trabajoBandejaParamsDe(r)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	trabajo, err := h.deps.Mensajeria.ListarTrabajoBandeja(r.Context(), r.Header.Get("Authorization"), params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aTrabajoBandeja(trabajo))
+}
+
+// ObtenerConversacion delega en mensajeria.obtenerConversacion (reutilizado del
+// portal cliente), pero devuelve el Conversacion COMPLETO (DEC-006 invertido): la
+// audiencia interna ve bandeja, reclamo y version, que la vista de cliente oculta.
+// Ruta protegida, solo Interna.
+func (h *Handlers) ObtenerConversacion(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "obtenerConversacion") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: obtenerConversacion: id invalido"))
+		return
+	}
+	conv, err := h.deps.Mensajeria.ObtenerConversacion(r.Context(), r.Header.Get("Authorization"), id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aConversacion(conv))
+}
+
+// ListarMensajes delega en mensajeria.listarMensajes (reutiliza mensajesParamsDe)
+// y devuelve la página COMPLETA (actor_real, rol, alias). Paginación por
+// secuencia. Ruta protegida, solo Interna.
+func (h *Handlers) ListarMensajes(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "listarMensajes") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: listarMensajes: id invalido"))
+		return
+	}
+	params, err := mensajesParamsDe(r)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	pagina, err := h.deps.Mensajeria.ListarMensajes(r.Context(), r.Header.Get("Authorization"), id, params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aPaginaMensajes(pagina))
+}
+
+// EnviarMensaje delega en mensajeria.enviarMensaje (idempotente por
+// client_message_id). A diferencia del envío de cliente, propaga
+// version_reclamo_esperada (obligatoria para la audiencia Interna: exige reclamo
+// activo). NO incluye motivo_override (no está en la entrada interna del bff).
+// Devuelve el Mensaje COMPLETO. Ruta protegida, solo Interna.
+func (h *Handlers) EnviarMensaje(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "enviarMensaje") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: enviarMensaje: id invalido"))
+		return
+	}
+	var cuerpo bffclient.EnviarMensajeInternaEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	var version *msgclient.VersionReclamo
+	if cuerpo.VersionReclamoEsperada != nil {
+		v := msgclient.VersionReclamo(*cuerpo.VersionReclamoEsperada)
+		version = &v
+	}
+	msg, err := h.deps.Mensajeria.EnviarMensaje(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.EnviarMensajeEntrada{
+			ClientMessageId:        cuerpo.ClientMessageId,
+			Cuerpo:                 cuerpo.Cuerpo,
+			AdjuntosIds:            cuerpo.AdjuntosIds,
+			VersionReclamoEsperada: version,
+		})
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	// shortcut: 201 también en el reintento idempotente (mensajeria distingue 200);
+	// actualizar si el frontend llega a ramificar sobre 200 vs 201. El cuerpo es
+	// el mismo Mensaje en ambos casos, así que el cliente lo trata igual.
+	escribirJSON(w, http.StatusCreated, aMensaje(msg))
+}
+
+// ReclamarConversacion delega en mensajeria.reclamarConversacion. El sujeto del
+// token toma la conversación (concurrencia optimista por version_esperada).
+// Devuelve el reclamo abierto (201). Ruta protegida, solo Interna.
+func (h *Handlers) ReclamarConversacion(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "reclamarConversacion") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: reclamarConversacion: id invalido"))
+		return
+	}
+	var cuerpo bffclient.VersionEsperadaEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	rec, err := h.deps.Mensajeria.ReclamarConversacion(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.VersionEsperadaEntrada{VersionEsperada: cuerpo.VersionEsperada})
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, aReclamo(rec))
+}
+
+// LiberarReclamo delega en mensajeria.liberarReclamo. La version_esperada va como
+// query (obligatoria: falta o mal formada es 400). Sin cuerpo de respuesta: 204.
+// Ruta protegida, solo Interna.
+func (h *Handlers) LiberarReclamo(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "liberarReclamo") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: liberarReclamo: id de conversacion invalido"))
+		return
+	}
+	rid, err := uuidDe(r.PathValue("rid"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: liberarReclamo: id de reclamo invalido"))
+		return
+	}
+	version, err := versionEsperadaObligatoriaDe(r)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.LiberarReclamo(r.Context(), r.Header.Get("Authorization"), id, rid,
+		msgclient.LiberarReclamoParams{VersionEsperada: version}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// TransferirConversacion delega en mensajeria.transferirConversacion. Pasa la
+// responsabilidad a otro miembro del pool. Devuelve el reclamo del destino (201).
+// Ruta protegida, solo Interna.
+func (h *Handlers) TransferirConversacion(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "transferirConversacion") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: transferirConversacion: id invalido"))
+		return
+	}
+	var cuerpo bffclient.TransferenciaEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	rec, err := h.deps.Mensajeria.TransferirConversacion(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.TransferenciaEntrada{
+			ResponsableDestinoId: cuerpo.ResponsableDestinoId,
+			VersionEsperada:      cuerpo.VersionEsperada,
+			Motivo:               cuerpo.Motivo,
+		})
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusCreated, aReclamo(rec))
+}
+
+// MarcarAtendida delega en mensajeria.marcarAtendida. El responsable marca la
+// conversación como atendida (concurrencia optimista por version_esperada). Sin
+// cuerpo de respuesta: 204. Ruta protegida, solo Interna.
+func (h *Handlers) MarcarAtendida(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "marcarAtendida") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: marcarAtendida: id invalido"))
+		return
+	}
+	var cuerpo bffclient.VersionEsperadaEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.MarcarAtendida(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.VersionEsperadaEntrada{VersionEsperada: cuerpo.VersionEsperada}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RegistrarReciboEntregado delega en mensajeria.registrarReciboEntregado. Avanza
+// el cursor de entrega del llamante hasta_secuencia. Sin cuerpo: 204. Ruta
+// protegida, solo Interna.
+func (h *Handlers) RegistrarReciboEntregado(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "registrarReciboEntregado") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: registrarReciboEntregado: id invalido"))
+		return
+	}
+	var cuerpo bffclient.ReciboEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.RegistrarReciboEntregado(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.ReciboEntrada{HastaSecuencia: cuerpo.HastaSecuencia}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RegistrarReciboLeido delega en mensajeria.registrarReciboLeido. Avanza el
+// cursor de lectura del llamante hasta_secuencia. Sin cuerpo: 204. Ruta
+// protegida, solo Interna.
+func (h *Handlers) RegistrarReciboLeido(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "registrarReciboLeido") {
+		return
+	}
+	id, err := uuidDe(r.PathValue("id"))
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: registrarReciboLeido: id invalido"))
+		return
+	}
+	var cuerpo bffclient.ReciboEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	if err := h.deps.Mensajeria.RegistrarReciboLeido(r.Context(), r.Header.Get("Authorization"), id,
+		msgclient.ReciboEntrada{HastaSecuencia: cuerpo.HastaSecuencia}); err != nil {
+		escribirError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// trabajoBandejaParamsDe lee cursor (paginación) y desde_revision (catch-up) del
+// query. Ausentes = bootstrap (mensajeria devuelve la cola completa). desde_revision
+// mal formado = error de validación.
+func trabajoBandejaParamsDe(r *http.Request) (msgclient.ListarTrabajoBandejaParams, error) {
+	var p msgclient.ListarTrabajoBandejaParams
+	q := r.URL.Query()
+	if s := q.Get("cursor"); s != "" {
+		c := msgclient.CursorPagina(s)
+		p.Cursor = &c
+	}
+	if s := q.Get("desde_revision"); s != "" {
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return p, platformerrors.NewValidacion("bff: listarTrabajoBandeja: desde_revision invalido: %v", err)
+		}
+		p.DesdeRevision = &v
+	}
+	return p, nil
+}
+
+// versionEsperadaObligatoriaDe lee version_esperada del query como entero
+// obligatorio (concurrencia optimista del reclamo al liberar). Ausente o mal
+// formado = error de validación (a diferencia de versionEsperadaDe del panel de
+// emergencia, donde ausente = 0).
+func versionEsperadaObligatoriaDe(r *http.Request) (msgclient.VersionReclamo, error) {
+	s := r.URL.Query().Get("version_esperada")
+	if s == "" {
+		return 0, platformerrors.NewValidacion("bff: liberarReclamo: version_esperada es obligatoria")
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, platformerrors.NewValidacion("bff: liberarReclamo: version_esperada invalida: %v", err)
+	}
+	return v, nil
+}
+
+// --- Mappers de la vista interna completa (msgclient -> bffclient) ---------
+// Los dos lados tienen forma idéntica pero son paquetes generados distintos, así
+// que no se pueden convertir directo: se copia campo a campo. A diferencia de la
+// vista de cliente, NO se omite ningún campo (la audiencia interna los ve todos,
+// DEC-006 invertido): omitir uno sería un bug silencioso.
+
+// aConversacion copia el Conversacion de mensajeria al de bff, campo a campo.
+// Incluye lo que la vista de cliente oculta: bandeja_id, reclamo_activo (con
+// aReclamo, nil-safe) y version_reclamo.
+func aConversacion(c *msgclient.Conversacion) bffclient.Conversacion {
+	if c == nil {
+		return bffclient.Conversacion{}
+	}
+	return bffclient.Conversacion{
+		Id:              c.Id,
+		ViajeId:         c.ViajeId,
+		ClienteId:       c.ClienteId,
+		Estado:          bffclient.EstadoConversacion(c.Estado),
+		AbiertaEn:       c.AbiertaEn,
+		AtendidaEn:      c.AtendidaEn,
+		EscrituraHasta:  c.EscrituraHasta,
+		BandejaId:       c.BandejaId,
+		ReclamoActivo:   aReclamo(c.ReclamoActivo),
+		UltimaSecuencia: c.UltimaSecuencia,
+		VersionReclamo:  c.VersionReclamo,
+	}
+}
+
+// aReclamo copia el Reclamo de mensajeria al de bff. Nil-safe: devuelve nil si
+// entra nil, porque Conversacion.ReclamoActivo es opcional (null en el pool).
+func aReclamo(r *msgclient.Reclamo) *bffclient.Reclamo {
+	if r == nil {
+		return nil
+	}
+	return &bffclient.Reclamo{
+		Id:             r.Id,
+		ConversacionId: r.ConversacionId,
+		ResponsableId:  r.ResponsableId,
+		Version:        r.Version,
+		AbiertoEn:      r.AbiertoEn,
+		CerradoEn:      r.CerradoEn,
+	}
+}
+
+// aTrabajoBandeja copia el TrabajoBandeja de mensajeria al de bff: la revisión,
+// el cursor de paginación y cada conversación completa (aConversacion). Items
+// nunca nil (lista vacía estable).
+func aTrabajoBandeja(t *msgclient.TrabajoBandeja) bffclient.TrabajoBandeja {
+	out := bffclient.TrabajoBandeja{Items: []bffclient.Conversacion{}}
+	if t == nil {
+		return out
+	}
+	out.Revision = t.Revision
+	out.CursorSiguiente = t.CursorSiguiente
+	for _, c := range t.Items {
+		cc := c
+		out.Items = append(out.Items, aConversacion(&cc))
+	}
+	return out
+}
+
+// aMensaje copia el Mensaje de mensajeria al de bff, campo a campo. Incluye lo
+// que la vista de cliente oculta: actor_real y rol_al_enviar.
+func aMensaje(m *msgclient.Mensaje) bffclient.Mensaje {
+	if m == nil {
+		return bffclient.Mensaje{}
+	}
+	out := bffclient.Mensaje{
+		Id:              m.Id,
+		ConversacionId:  m.ConversacionId,
+		ClientMessageId: m.ClientMessageId,
+		Secuencia:       m.Secuencia,
+		Cuerpo:          m.Cuerpo,
+		CreadoEn:        m.CreadoEn,
+		ActorReal:       m.ActorReal,
+		AdjuntosIds:     m.AdjuntosIds,
+		AliasMostrado:   m.AliasMostrado,
+		AudienciaAutor:  bffclient.Audiencia(m.AudienciaAutor),
+	}
+	if m.RolAlEnviar != nil {
+		rol := bffclient.Rol(*m.RolAlEnviar)
+		out.RolAlEnviar = &rol
+	}
+	return out
+}
+
+// aPaginaMensajes copia la PaginaMensajes de mensajeria a la de bff, conservando
+// hay_mas y cada mensaje completo (aMensaje). Items nunca nil.
+func aPaginaMensajes(p *msgclient.PaginaMensajes) bffclient.PaginaMensajes {
+	out := bffclient.PaginaMensajes{Items: []bffclient.Mensaje{}}
+	if p == nil {
+		return out
+	}
+	out.HayMas = p.HayMas
+	for _, m := range p.Items {
+		mm := m
+		out.Items = append(out.Items, aMensaje(&mm))
+	}
+	return out
+}
+
 // --- Atención interna del caso (panel de Reacción, E7/tracer.17) -----------
 // El panel interno (Reacción, supervisor, coordinador) lista y atiende el caso.
 // bff propaga el Bearer y reenvía a mensajeria, que autoriza por los claims

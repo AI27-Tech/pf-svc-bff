@@ -118,6 +118,36 @@ type MensajeriaPort interface {
 	// EnviarMensaje publica un mensaje del cliente (idempotente por
 	// client_message_id). Devuelve el Mensaje; 200 (reintento) o 201 (nuevo).
 	EnviarMensaje(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.EnviarMensajeEntrada) (*msgclient.Mensaje, error)
+
+	// --- Bandeja y conversación interna del pool (E8-T15) ----------------
+	// Superficie interna del pool de Ejecutivos (reclamo, transferencia,
+	// atención, recibos). Misma mecánica: bff propaga el Bearer y mensajeria
+	// autoriza por los claims (membresía efectiva en el pool, no solo el rol).
+	// A diferencia de la vista de cliente, el bff NO recorta la respuesta: la
+	// audiencia interna ve el Conversacion/Mensaje completos (DEC-006 invertido).
+	// ObtenerConversacion, ListarMensajes y EnviarMensaje se reutilizan de
+	// arriba: el adaptador ya devuelve el tipo completo y el recorte vive en el
+	// handler de cliente, no en el puerto.
+
+	// ListarTrabajoBandeja lista el trabajo de la bandeja (bootstrap sin
+	// desde_revision, catch-up con él). El bff resuelve la bandeja del sujeto
+	// desde los claims (cola única, DEC-103); por eso NO recibe un id de bandeja.
+	ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoBandejaParams) (*msgclient.TrabajoBandeja, error)
+	// ReclamarConversacion toma la conversación para el sujeto del token
+	// (concurrencia optimista por version_esperada). Devuelve el reclamo abierto.
+	ReclamarConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) (*msgclient.Reclamo, error)
+	// LiberarReclamo suelta el reclamo (version_esperada va como query). Sin cuerpo.
+	LiberarReclamo(ctx context.Context, bearer string, conversacionID, reclamoID msgclient.Id, params msgclient.LiberarReclamoParams) error
+	// TransferirConversacion pasa la responsabilidad a otro miembro del pool.
+	// Devuelve el reclamo del destino.
+	TransferirConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.TransferenciaEntrada) (*msgclient.Reclamo, error)
+	// MarcarAtendida marca la conversación como atendida por el responsable.
+	// Sin cuerpo de respuesta; basta el éxito.
+	MarcarAtendida(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) error
+	// RegistrarReciboEntregado avanza el cursor de entrega del llamante. Sin cuerpo.
+	RegistrarReciboEntregado(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.ReciboEntrada) error
+	// RegistrarReciboLeido avanza el cursor de lectura del llamante. Sin cuerpo.
+	RegistrarReciboLeido(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.ReciboEntrada) error
 }
 
 // CatalogosPort es la arista a catalogos: el selector de clientes para crear un
