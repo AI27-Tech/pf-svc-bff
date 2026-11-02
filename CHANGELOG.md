@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## 2026-10-30 — Completar listarTrabajoBandeja: reenvío real a la bandeja sin {id} (E8-T15)
+
+**Para quién:** el portal interno, que ya puede listar el trabajo de su bandeja (`GET /api/v1/bandeja/trabajo`) contra el bff real. Cierra la última operación que quedaba como stub en E8-T15.
+
+**Resumen:** sube el pin de contratos a `tracer.31` y reemplaza el stub `Roto` de `ListarTrabajoBandeja` (adaptador de mensajeria) por el reenvío real a `mensajeria.listarTrabajoMiBandeja`, la ruta sin `{id}` que resuelve la bandeja del sujeto por su membresía (opción A de E8-T15). mensajeria es la autoridad; el bff propaga el Bearer.
+
+**Cambios:**
+- `adapters/http/mensajeria.go`: `ListarTrabajoBandeja` reenvía a `ListarTrabajoMiBandejaWithResponse` (antes devolvía `Roto`). Se retira el import `platformerrors`, ya sin uso.
+- `internal/agregacion/ports.go`, `handlers.go`, `emergencia_test.go`: el tipo de params pasa de `ListarTrabajoBandejaParams` a `ListarTrabajoMiBandejaParams` (la operación que de verdad se invoca; mismos campos cursor/desde_revision).
+- `go.mod`: pin de `api-client-go` a `v0.1.0-tracer.31`.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go test ./...`, `arch-test` en verde. El bump de pin no trajo renombres de enum. El handler y sus pruebas (`bandeja_test.go`) no cambian: ya afirmaban el comportamiento con el fake; ahora el adaptador cumple su reenvío.
+
+**Con esto E8-T15 queda cerrado en sus tres repos:** contrato (`tracer.30` + `tracer.31`), mensajeria (resolución de la bandeja del sujeto) y bff (10 operaciones internas, todas funcionales). Pendiente aparte: la brecha 3 (nombres mostrables y `listarDestinosTransferencia`).
+
+## 2026-10-30 — Superficie interna de bandeja y conversación del pool en el bff (E8-T15)
+
+**Para quién:** el portal interno (`pf-web-frontend-internal`), que ya atiende la conversación del pool por la puerta única del bff (reclamar, liberar, transferir, marcar atendida, recibos y la conversación interna completa), sin llamar a `mensajeria` directo. Para quien mantiene el bff: 10 handlers internos que reenvían a `mensajeria` y mappers que exponen la vista interna completa.
+
+**Resumen:** consume la ola de contrato `tracer.30` (sube el pin de `api-client-go` a `v0.1.0-tracer.30`) y monta la superficie interna de E8-T15. Audiencia interna: un actor Cliente recibe 403 antes de reenviar. A diferencia de la vista de cliente, estos handlers NO recortan la respuesta: la audiencia interna ve el estado canónico, el reclamo, la bandeja y el actor real (DEC-006 invertido). `mensajeria` sigue siendo la única autoridad: autoriza por los claims (membresía efectiva en el pool), valida la concurrencia optimista del reclamo y la ventana de escritura; el bff propaga el Bearer y reenvía.
+
+**Operaciones montadas (9 funcionales + 1 stub):**
+- `obtenerConversacion`, `listarMensajes`, `enviarMensaje` (interna, con `version_reclamo_esperada`, sin `motivo_override` por DEC-107), `reclamarConversacion`, `liberarReclamo`, `transferirConversacion`, `marcarAtendida`, `registrarReciboEntregado`, `registrarReciboLeido`: funcionales, por `conversacion_id`.
+- `listarTrabajoBandeja` (`GET /api/v1/bandeja/trabajo`, sin `{id}`, cola única DEC-103): handler, ruta, mapper y pruebas completos, pero el **adaptador queda como stub** y responde `Roto`. Motivo: `mensajeria.listarTrabajoBandeja` exige el `{id}` de la bandeja en la ruta y el bff no tiene de dónde sacarlo (los claims no traen `bandeja_id`, DEC-053). El cierre acordado (opción A de E8-T15) es que `mensajeria` exponga una ruta que resuelva la bandeja del pool por la membresía del token; cuando esa ola exista, se completa el reenvío. Marcado con `shortcut:` en el adaptador.
+
+**Reúso (laziness):** `obtenerConversacion`/`listarMensajes`/`enviarMensaje` del puerto `MensajeriaPort` se reutilizan de la conversación de cliente; el adaptador ya devuelve el tipo completo y el recorte vivía solo en el handler de cliente. Se añadieron 7 métodos al puerto, no 10.
+
+**Cambios:**
+- `internal/agregacion/ports.go`: 7 métodos nuevos en `MensajeriaPort`.
+- `adapters/http/mensajeria.go`: 6 reenvíos nuevos + `ListarTrabajoBandeja` como stub `Roto`.
+- `internal/agregacion/handlers.go`: `soloInterno`, 10 handlers internos, mappers `aConversacion`/`aReclamo`/`aTrabajoBandeja`/`aMensaje`/`aPaginaMensajes` (campo a campo, sin recortar), y los helpers de params.
+- `bff.go`: 10 rutas montadas (bandeja sin `{id}`).
+- `bff_test.go`: 10 entradas nuevas en la prueba de contrato.
+- `internal/agregacion/emergencia_test.go`: `fakeMensajeria` ampliado con los 7 métodos.
+- `internal/agregacion/bandeja_test.go`: nuevo. 403/401 de audiencia, vista interna sin recorte, propagación de `version_reclamo_esperada`, `version_esperada` obligatoria al liberar.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go test ./...`, `arch-test` en verde. Bump de pin tracer.29→.30 sin renombres de enum.
+
 ## 2026-10-30 — Cursor de dominio en el bootstrap de la conversación del cliente (E9-T8, ADR 28 §2)
 
 **Para quién:** el portal cliente, que al abrir una conversación recibe ahora `ultima_secuencia` y con ella pide el catch-up (`listarMensajes?despues_de=`), sin derivar el cursor del último mensaje listado.
