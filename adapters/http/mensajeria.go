@@ -248,3 +248,124 @@ func (a *MensajeriaHTTP) EnviarMensaje(ctx context.Context, bearer string, viaje
 	}
 	return nil, errores.DeRespuesta("EnviarMensaje", resp.StatusCode(), codigo)
 }
+
+// --- Bandeja y conversación interna del pool (E8-T15) ----------------------
+// Misma mecánica que arriba: presupuesto, propagación del Bearer y traducción de
+// error. mensajeria autoriza por los claims (membresía efectiva en el pool).
+// ObtenerConversacion/ListarMensajes/EnviarMensaje NO se redefinen: la superficie
+// interna reutiliza los de arriba (devuelven el tipo completo; el recorte a vista
+// de cliente vive en el handler de cliente, no aquí).
+
+// ListarTrabajoBandeja reenvía a mensajeria.listarTrabajoMiBandeja: la cola del
+// pool del sujeto, SIN {id} (cola única, DEC-103). mensajeria resuelve la bandeja
+// del sujeto por su membresía; el bff solo propaga el Bearer. El 409 fuera de
+// ventana (stream_resync_required) lo traduce DeStatus.
+func (a *MensajeriaHTTP) ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoMiBandejaParams) (*msgclient.TrabajoBandeja, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarTrabajoMiBandejaWithResponse(ctx, &params, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarTrabajoBandeja", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarTrabajoBandeja", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ReclamarConversacion reenvía a mensajeria.reclamarConversacion. Devuelve el
+// reclamo abierto (201); un 409 es conflicto de versión (conflicto_version_reclamo).
+func (a *MensajeriaHTTP) ReclamarConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) (*msgclient.Reclamo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ReclamarConversacionWithResponse(ctx, conversacionID, body, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ReclamarConversacion", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("ReclamarConversacion", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// LiberarReclamo reenvía a mensajeria.liberarReclamo. La version_esperada viaja
+// como query; la respuesta no lleva cuerpo, así que el éxito es un 2xx.
+func (a *MensajeriaHTTP) LiberarReclamo(ctx context.Context, bearer string, conversacionID, reclamoID msgclient.Id, params msgclient.LiberarReclamoParams) error {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.LiberarReclamoWithResponse(ctx, conversacionID, reclamoID, &params, conBearer(bearer))
+	if err != nil {
+		return errores.DeTransporte("LiberarReclamo", err)
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return errores.DeStatus("LiberarReclamo", resp.StatusCode())
+	}
+	return nil
+}
+
+// TransferirConversacion reenvía a mensajeria.transferirConversacion. Devuelve el
+// reclamo del responsable destino (201).
+func (a *MensajeriaHTTP) TransferirConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.TransferenciaEntrada) (*msgclient.Reclamo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.TransferirConversacionWithResponse(ctx, conversacionID, body, conBearer(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("TransferirConversacion", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("TransferirConversacion", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// MarcarAtendida reenvía a mensajeria.marcarAtendida. Sin cuerpo de respuesta; el
+// éxito es un 2xx (204). Un 409 es conflicto de versión.
+func (a *MensajeriaHTTP) MarcarAtendida(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) error {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.MarcarAtendidaWithResponse(ctx, conversacionID, body, conBearer(bearer))
+	if err != nil {
+		return errores.DeTransporte("MarcarAtendida", err)
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return errores.DeStatus("MarcarAtendida", resp.StatusCode())
+	}
+	return nil
+}
+
+// RegistrarReciboEntregado reenvía a mensajeria.registrarReciboEntregado. Avanza
+// el cursor de entrega del llamante; sin cuerpo (204).
+func (a *MensajeriaHTTP) RegistrarReciboEntregado(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.ReciboEntrada) error {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.RegistrarReciboEntregadoWithResponse(ctx, conversacionID, body, conBearer(bearer))
+	if err != nil {
+		return errores.DeTransporte("RegistrarReciboEntregado", err)
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return errores.DeStatus("RegistrarReciboEntregado", resp.StatusCode())
+	}
+	return nil
+}
+
+// RegistrarReciboLeido reenvía a mensajeria.registrarReciboLeido. Avanza el
+// cursor de lectura del llamante; sin cuerpo (204).
+func (a *MensajeriaHTTP) RegistrarReciboLeido(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.ReciboEntrada) error {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.RegistrarReciboLeidoWithResponse(ctx, conversacionID, body, conBearer(bearer))
+	if err != nil {
+		return errores.DeTransporte("RegistrarReciboLeido", err)
+	}
+	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
+		return errores.DeStatus("RegistrarReciboLeido", resp.StatusCode())
+	}
+	return nil
+}

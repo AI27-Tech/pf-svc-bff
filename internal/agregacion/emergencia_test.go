@@ -31,6 +31,16 @@ type fakeMensajeria struct {
 	mensaje               *msgclient.Mensaje
 	paramsRecibidos       *msgclient.ListarMensajesParams
 	envioRecibido         *msgclient.EnviarMensajeEntrada
+
+	// Bandeja y conversación interna del pool (E8-T15).
+	trabajo              *msgclient.TrabajoBandeja
+	paramsBandeja        *msgclient.ListarTrabajoMiBandejaParams
+	reclamarRecibido     *msgclient.VersionEsperadaEntrada
+	liberarRecibido      *msgclient.LiberarReclamoParams
+	transferenciaConvRec *msgclient.TransferenciaEntrada
+	atendidaRecibido     *msgclient.VersionEsperadaEntrada
+	reciboEntregadoRec   *msgclient.ReciboEntrada
+	reciboLeidoRec       *msgclient.ReciboEntrada
 }
 
 func (f *fakeMensajeria) ListarEmergencias(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.PaginaEmergencias, error) {
@@ -85,6 +95,45 @@ func (f *fakeMensajeria) EnviarMensaje(ctx context.Context, bearer string, viaje
 	f.bearerRecibido = bearer
 	f.envioRecibido = &body
 	return f.mensaje, f.err
+}
+
+// --- Bandeja y conversación interna del pool (E8-T15) ---
+// ObtenerConversacion/ListarMensajes/EnviarMensaje se reutilizan de arriba.
+
+func (f *fakeMensajeria) ListarTrabajoBandeja(ctx context.Context, bearer string, params msgclient.ListarTrabajoMiBandejaParams) (*msgclient.TrabajoBandeja, error) {
+	f.bearerRecibido = bearer
+	f.paramsBandeja = &params
+	return f.trabajo, f.err
+}
+func (f *fakeMensajeria) ReclamarConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) (*msgclient.Reclamo, error) {
+	f.bearerRecibido = bearer
+	f.reclamarRecibido = &body
+	return f.reclamo, f.err
+}
+func (f *fakeMensajeria) LiberarReclamo(ctx context.Context, bearer string, conversacionID, reclamoID msgclient.Id, params msgclient.LiberarReclamoParams) error {
+	f.bearerRecibido = bearer
+	f.liberarRecibido = &params
+	return f.err
+}
+func (f *fakeMensajeria) TransferirConversacion(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.TransferenciaEntrada) (*msgclient.Reclamo, error) {
+	f.bearerRecibido = bearer
+	f.transferenciaConvRec = &body
+	return f.reclamo, f.err
+}
+func (f *fakeMensajeria) MarcarAtendida(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.VersionEsperadaEntrada) error {
+	f.bearerRecibido = bearer
+	f.atendidaRecibido = &body
+	return f.err
+}
+func (f *fakeMensajeria) RegistrarReciboEntregado(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.ReciboEntrada) error {
+	f.bearerRecibido = bearer
+	f.reciboEntregadoRec = &body
+	return f.err
+}
+func (f *fakeMensajeria) RegistrarReciboLeido(ctx context.Context, bearer string, conversacionID msgclient.Id, body msgclient.ReciboEntrada) error {
+	f.bearerRecibido = bearer
+	f.reciboLeidoRec = &body
+	return f.err
 }
 
 const viajeID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
