@@ -191,6 +191,24 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/viajes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajesViaje)))
 	mux.Handle("POST /api/v1/viajes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.EnviarMensajeViaje)))
 
+	// Bandeja y conversación interna del pool (E8-T15, DEC-006 invertido): la
+	// cola única de trabajo y las acciones del pool de Ejecutivos sobre una
+	// conversación por su id (reclamo, transferencia, atención, recibos). Los
+	// handlers exigen audiencia Interna; mensajeria autoriza por membresía en el
+	// pool. A diferencia de la vista de cliente, la respuesta NO se recorta. OJO:
+	// la bandeja es cola única (sin {id}); el bff resuelve la bandeja del sujeto
+	// desde los claims (DEC-103).
+	mux.Handle("GET /api/v1/bandeja/trabajo", protegido(http.HandlerFunc(m.handlers.ListarTrabajoBandeja)))
+	mux.Handle("GET /api/v1/conversaciones/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerConversacion)))
+	mux.Handle("GET /api/v1/conversaciones/{id}/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajes)))
+	mux.Handle("POST /api/v1/conversaciones/{id}/mensajes", protegido(http.HandlerFunc(m.handlers.EnviarMensaje)))
+	mux.Handle("POST /api/v1/conversaciones/{id}/reclamos", protegido(http.HandlerFunc(m.handlers.ReclamarConversacion)))
+	mux.Handle("DELETE /api/v1/conversaciones/{id}/reclamos/{rid}", protegido(http.HandlerFunc(m.handlers.LiberarReclamo)))
+	mux.Handle("POST /api/v1/conversaciones/{id}/transferencias", protegido(http.HandlerFunc(m.handlers.TransferirConversacion)))
+	mux.Handle("POST /api/v1/conversaciones/{id}/atendida", protegido(http.HandlerFunc(m.handlers.MarcarAtendida)))
+	mux.Handle("POST /api/v1/conversaciones/{id}/recibos/entregado", protegido(http.HandlerFunc(m.handlers.RegistrarReciboEntregado)))
+	mux.Handle("POST /api/v1/conversaciones/{id}/recibos/leido", protegido(http.HandlerFunc(m.handlers.RegistrarReciboLeido)))
+
 	// Carril interno de emergencia (panel de Reacción, E7/tracer.17): listar con
 	// vista completa y las cinco acciones de atención. mensajeria autoriza por
 	// claims; bff propaga el Bearer.
