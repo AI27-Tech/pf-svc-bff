@@ -37,8 +37,9 @@ type IdentidadPort interface {
 }
 
 // OperacionPort es la arista a operacion: crear viaje, listar por alcance,
-// obtener detalle, transicionar, leer bitacora y auditoria, y dejar el rastro de
-// la descarga. Sin asignacion (bff.md (f)).
+// obtener detalle, transicionar, leer bitacora y auditoria, dejar el rastro de
+// la descarga y el flujo interno del panel (ETA, asignacion, bitacora,
+// incidencias, estadias).
 type OperacionPort interface {
 	// CrearViaje reenvia la creacion; el estado inicial lo fija el rol del token
 	// en operacion (DEC-026), bff no decide.
@@ -69,6 +70,27 @@ type OperacionPort interface {
 	// (cliente solo CANCELADO/RECHAZADO_POR_CLIENTE, DEC-111). Devuelve el Viaje
 	// plano; el handler recompone la vista de seguimiento con ObtenerViaje.
 	TransicionarViaje(ctx context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error)
+
+	// Flujo interno del panel (bff como única puerta pública). Cada uno reenvía
+	// al operationId homónimo de operacion (DEC-105); operacion es la autoridad
+	// de rol, estado y conflictos, bff solo exige audiencia Interna.
+
+	// FijarEta reenvia la captura manual del ETA (ADR 20). Devuelve el Viaje
+	// plano; el handler recompone el detalle interno con ObtenerViaje.
+	FijarEta(ctx context.Context, id opclient.Id, body opclient.EtaEntrada) (*opclient.Viaje, error)
+	// AsignarRecursos reenvia la reserva atomica de la escolta (ADR 31).
+	AsignarRecursos(ctx context.Context, id opclient.Id, body opclient.AsignacionEntrada) (*opclient.Asignacion, error)
+	// RegistrarEntradaBitacora reenvia una entrada append-only; el autor sale del
+	// token aguas abajo.
+	RegistrarEntradaBitacora(ctx context.Context, id opclient.Id, body opclient.EntradaBitacoraEntrada) (*opclient.EntradaBitacora, error)
+	// AbrirIncidencia y ResolverIncidencia reenvian la condicion INCIDENCIA; el rol
+	// del token decide la facultad en operacion.
+	AbrirIncidencia(ctx context.Context, id opclient.Id, body opclient.IncidenciaEntrada) (*opclient.Incidencia, error)
+	ResolverIncidencia(ctx context.Context, id, iid opclient.Id, body opclient.ResolucionIncidenciaEntrada) (*opclient.Incidencia, error)
+	// ListarEstadias, AbrirEstadia y CerrarEstadia reenvian las estadias del viaje.
+	ListarEstadias(ctx context.Context, id opclient.Id, params opclient.ListarEstadiasParams) (*opclient.PaginaEstadias, error)
+	AbrirEstadia(ctx context.Context, id opclient.Id, body opclient.EstadiaEntrada) (*opclient.Estadia, error)
+	CerrarEstadia(ctx context.Context, id, eid opclient.Id) (*opclient.Estadia, error)
 }
 
 // MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia
