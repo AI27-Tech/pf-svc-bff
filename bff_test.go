@@ -51,6 +51,17 @@ var operacionesFaseA = []rutaContrato{
 	{"marcarAtendida", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/atendida", true},
 	{"registrarReciboEntregado", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/recibos/entregado", true},
 	{"registrarReciboLeido", http.MethodPost, "/api/v1/conversaciones/00000000-0000-0000-0000-000000000000/recibos/leido", true},
+	// Flujo interno del panel (bff como única puerta pública).
+	{"obtenerViajeInterno", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/detalle", true},
+	{"fijarEta", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/eta", true},
+	{"asignarRecursos", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/asignacion", true},
+	{"listarBitacora", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/bitacora", true},
+	{"registrarEntradaBitacora", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/bitacora", true},
+	{"abrirIncidencia", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/incidencias", true},
+	{"resolverIncidencia", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/incidencias/00000000-0000-0000-0000-000000000000", true},
+	{"listarEstadias", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias", true},
+	{"abrirEstadia", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias", true},
+	{"cerrarEstadia", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias/00000000-0000-0000-0000-000000000000", true},
 }
 
 // TestRutasMontadasContraContrato verifica que New().Routes monta exactamente

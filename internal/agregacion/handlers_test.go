@@ -555,6 +555,82 @@ type fakeOperacion struct {
 	transicionarLlamado     bool
 	transicionarErr         error
 	transicionarViaje       *opclient.Viaje
+
+	// Flujo interno del panel: el último método llamado, lo que recibió (id del
+	// viaje, id de incidencia/estadía, cuerpo o params), su error propio y las
+	// respuestas por tipo.
+	flujoLlamado  string
+	flujoID       opclient.Id
+	flujoSubID    opclient.Id
+	flujoRecibio  any
+	flujoErr      error
+	asignacion    *opclient.Asignacion
+	entrada       *opclient.EntradaBitacora
+	incidencia    *opclient.Incidencia
+	estadia       *opclient.Estadia
+	paginaEstadia *opclient.PaginaEstadias
+}
+
+// flujo registra la llamada a un método del flujo interno.
+func (f *fakeOperacion) flujo(metodo string, id, subID opclient.Id, recibio any) error {
+	f.flujoLlamado, f.flujoID, f.flujoSubID, f.flujoRecibio = metodo, id, subID, recibio
+	return f.flujoErr
+}
+
+func (f *fakeOperacion) FijarEta(_ context.Context, id opclient.Id, body opclient.EtaEntrada) (*opclient.Viaje, error) {
+	if err := f.flujo("FijarEta", id, opclient.Id{}, body); err != nil {
+		return nil, err
+	}
+	return f.viaje, nil
+}
+
+func (f *fakeOperacion) AsignarRecursos(_ context.Context, id opclient.Id, body opclient.AsignacionEntrada) (*opclient.Asignacion, error) {
+	if err := f.flujo("AsignarRecursos", id, opclient.Id{}, body); err != nil {
+		return nil, err
+	}
+	return f.asignacion, nil
+}
+
+func (f *fakeOperacion) RegistrarEntradaBitacora(_ context.Context, id opclient.Id, body opclient.EntradaBitacoraEntrada) (*opclient.EntradaBitacora, error) {
+	if err := f.flujo("RegistrarEntradaBitacora", id, opclient.Id{}, body); err != nil {
+		return nil, err
+	}
+	return f.entrada, nil
+}
+
+func (f *fakeOperacion) AbrirIncidencia(_ context.Context, id opclient.Id, body opclient.IncidenciaEntrada) (*opclient.Incidencia, error) {
+	if err := f.flujo("AbrirIncidencia", id, opclient.Id{}, body); err != nil {
+		return nil, err
+	}
+	return f.incidencia, nil
+}
+
+func (f *fakeOperacion) ResolverIncidencia(_ context.Context, id, iid opclient.Id, body opclient.ResolucionIncidenciaEntrada) (*opclient.Incidencia, error) {
+	if err := f.flujo("ResolverIncidencia", id, iid, body); err != nil {
+		return nil, err
+	}
+	return f.incidencia, nil
+}
+
+func (f *fakeOperacion) ListarEstadias(_ context.Context, id opclient.Id, params opclient.ListarEstadiasParams) (*opclient.PaginaEstadias, error) {
+	if err := f.flujo("ListarEstadias", id, opclient.Id{}, params); err != nil {
+		return nil, err
+	}
+	return f.paginaEstadia, nil
+}
+
+func (f *fakeOperacion) AbrirEstadia(_ context.Context, id opclient.Id, body opclient.EstadiaEntrada) (*opclient.Estadia, error) {
+	if err := f.flujo("AbrirEstadia", id, opclient.Id{}, body); err != nil {
+		return nil, err
+	}
+	return f.estadia, nil
+}
+
+func (f *fakeOperacion) CerrarEstadia(_ context.Context, id, eid opclient.Id) (*opclient.Estadia, error) {
+	if err := f.flujo("CerrarEstadia", id, eid, nil); err != nil {
+		return nil, err
+	}
+	return f.estadia, nil
 }
 
 func (f *fakeOperacion) TransicionarViaje(_ context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error) {
@@ -592,7 +668,8 @@ func (f *fakeOperacion) ObtenerViaje(ctx context.Context, id opclient.Id) (*opcl
 	return f.detalle, nil
 }
 
-func (f *fakeOperacion) ListarBitacora(_ context.Context, _ opclient.Id, _ opclient.ListarBitacoraParams) (*opclient.PaginaBitacora, error) {
+func (f *fakeOperacion) ListarBitacora(_ context.Context, id opclient.Id, params opclient.ListarBitacoraParams) (*opclient.PaginaBitacora, error) {
+	_ = f.flujo("ListarBitacora", id, opclient.Id{}, params) // registra; el error es f.err
 	if f.err != nil {
 		return nil, f.err
 	}

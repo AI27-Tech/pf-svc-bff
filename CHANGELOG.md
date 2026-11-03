@@ -1,5 +1,36 @@
 # CHANGELOG
 
+## 2026:11:02 18:00 — Flujo interno del panel por el bff (bff como única puerta pública)
+
+**Para quién:** el portal interno, que podrá hacer el flujo operativo del viaje por el bff sin llamar las rutas nativas de `operacion`. El Lead decidió que el bff sea la única puerta pública; este es el primer grupo de lo que faltaba, y es requisito para cerrar después el mux de respaldo de core. Para quien mantiene el bff: diez reenvíos delgados a `operacion`, sin lógica de dominio.
+
+**Resumen:** monta diez operaciones internas de `bff.yaml` (pin `tracer.31`) cuyo caso de uso ya existe en `operacion`: `obtenerViajeInterno` (`GET /api/v1/viajes/{id}/detalle`), `fijarEta`, `asignarRecursos`, `listarBitacora`, `registrarEntradaBitacora`, `abrirIncidencia`, `resolverIncidencia`, `listarEstadias`, `abrirEstadia` y `cerrarEstadia`. Cada handler exige audiencia Interna antes de reenviar (un Cliente recibe 403), propaga el Bearer y no recorta la vista. `operacion` sigue siendo la autoridad de rol, estado y conflictos; su 400/401/403/404/409 se propaga tal cual, con el `codigo` de máquina del 409 (`recurso_no_disponible`, `condicion_ya_abierta`, `estadia_ya_cerrada`).
+
+**Cambios:**
+- `internal/agregacion/ports.go`, `ports.go`, `bff.go`: `OperacionPort` gana `FijarEta`, `AsignarRecursos`, `RegistrarEntradaBitacora`, `AbrirIncidencia`, `ResolverIncidencia`, `ListarEstadias`, `AbrirEstadia` y `CerrarEstadia`, con la misma firma que la fachada `Consultas()` de `operacion`.
+- `adapters/http/operacion.go`: los ocho métodos con el cliente generado, el presupuesto de operacion y el Bearer; el 409 conserva su `codigo`.
+- `internal/agregacion/flujo_interno.go` (nuevo): los diez handlers. `fijarEta` y `obtenerViajeInterno` responden el detalle interno (`aViajeDetalle`, como `transicionarViaje`).
+- `bff.go`: las diez rutas. No chocan con las de cliente: la vista interna va en `/detalle` porque `GET /api/v1/viajes/{id}` es `seguirViaje`.
+- Pruebas: `bff_test.go` (ruta ↔ operationId de las diez), `flujo_interno_test.go` (por handler: 403 con audiencia Cliente sin tocar el puerto, y con audiencia Interna el reenvío del id, el cuerpo y la respuesta; 409 con `codigo`), `passthrough_test.go` (el adaptador propaga el `codigo` del 409 y el Bearer).
+
+**Fuera de este PR (sin caso de uso aún en operacion):** `obtenerFicha`, `guardarFicha`, `completarFechaHora`, `listarIncidencias`, `listarUnidades`, `listarGps`.
+
+**Sin cambio de contrato:** todo existe en el pin `tracer.31`.
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go build ./cmd/api`, `go test ./...` y `arch-test` en verde.
+
+**Archivos modificados:**
+- `adapters/http/operacion.go`
+- `adapters/http/passthrough_test.go`
+- `bff.go`
+- `bff_test.go`
+- `ports.go`
+- `internal/agregacion/ports.go`
+- `internal/agregacion/flujo_interno.go`
+- `internal/agregacion/flujo_interno_test.go`
+- `internal/agregacion/handlers_test.go`
+- `CHANGELOG.md`
+
 ## 2026-10-30 — Completar listarTrabajoBandeja: reenvío real a la bandeja sin {id} (E8-T15)
 
 **Para quién:** el portal interno, que ya puede listar el trabajo de su bandeja (`GET /api/v1/bandeja/trabajo`) contra el bff real. Cierra la última operación que quedaba como stub en E8-T15.

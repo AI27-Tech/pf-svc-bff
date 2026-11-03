@@ -49,7 +49,8 @@ type Deps struct {
 	// bff NUNCA verifica tokens contra identidad (eso es local, con auth.Verifier).
 	Identidad IdentidadPort
 	// Operacion es la arista a operacion: crear viaje, listar por alcance, obtener
-	// detalle y transicionar (cliente E9-T7, interna E8-T14). Sin asignacion (bff.md (f)).
+	// detalle, transicionar (cliente E9-T7, interna E8-T14) y el flujo interno del
+	// panel (ETA, asignacion, bitacora, incidencias, estadias).
 	Operacion OperacionPort
 	// Mensajeria es la arista a mensajeria: el portal cliente de emergencia
 	// (E7/tracer.17). Primera arista bff→mensajeria; propaga el token del usuario.
@@ -180,6 +181,20 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	// audiencia vive en el handler, antes de componer nada; aqui solo se protege
 	// con verificacion local + tombstones como las demas rutas.
 	mux.Handle("GET /api/v1/viajes/{id}/descarga", protegido(http.HandlerFunc(m.handlers.DescargarViaje)))
+	// Flujo interno del panel (bff como única puerta pública): mismas rutas que
+	// las nativas de operacion. Los handlers exigen audiencia Interna; la vista
+	// interna del viaje va en /detalle porque GET /api/v1/viajes/{id} es la vista
+	// de seguimiento del cliente.
+	mux.Handle("GET /api/v1/viajes/{id}/detalle", protegido(http.HandlerFunc(m.handlers.ObtenerViajeInterno)))
+	mux.Handle("PATCH /api/v1/viajes/{id}/eta", protegido(http.HandlerFunc(m.handlers.FijarEta)))
+	mux.Handle("POST /api/v1/viajes/{id}/asignacion", protegido(http.HandlerFunc(m.handlers.AsignarRecursos)))
+	mux.Handle("GET /api/v1/viajes/{id}/bitacora", protegido(http.HandlerFunc(m.handlers.ListarBitacora)))
+	mux.Handle("POST /api/v1/viajes/{id}/bitacora", protegido(http.HandlerFunc(m.handlers.RegistrarEntradaBitacora)))
+	mux.Handle("POST /api/v1/viajes/{id}/incidencias", protegido(http.HandlerFunc(m.handlers.AbrirIncidencia)))
+	mux.Handle("PATCH /api/v1/viajes/{id}/incidencias/{iid}", protegido(http.HandlerFunc(m.handlers.ResolverIncidencia)))
+	mux.Handle("GET /api/v1/viajes/{id}/estadias", protegido(http.HandlerFunc(m.handlers.ListarEstadias)))
+	mux.Handle("POST /api/v1/viajes/{id}/estadias", protegido(http.HandlerFunc(m.handlers.AbrirEstadia)))
+	mux.Handle("PATCH /api/v1/viajes/{id}/estadias/{eid}", protegido(http.HandlerFunc(m.handlers.CerrarEstadia)))
 	mux.Handle("GET /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaCliente)))
