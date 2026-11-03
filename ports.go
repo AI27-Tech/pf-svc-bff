@@ -17,8 +17,8 @@ import (
 // ADR 26. NUNCA verifica tokens: la verificacion es local, con auth.Verifier.
 type IdentidadPort = agregacion.IdentidadPort
 
-// OperacionPort es la arista a operacion: crear viaje, listar por alcance y
-// obtener detalle. Sin transiciones internas ni asignacion (bff.md (f)).
+// OperacionPort es la arista a operacion: viajes, transiciones, descarga y el
+// flujo interno del panel (ETA, asignacion, bitacora, incidencias, estadias).
 type OperacionPort = agregacion.OperacionPort
 
 // MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia y el
