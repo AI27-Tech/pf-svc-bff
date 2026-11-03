@@ -175,3 +175,137 @@ func (a *OperacionHTTP) TransicionarViaje(ctx context.Context, id opclient.Id, b
 	}
 	return resp.JSON200, nil
 }
+
+// codigo409 extrae el codigo de maquina de un 409 de operacion (p. ej.
+// recurso_no_disponible, condicion_ya_abierta) para que el panel lo distinga.
+func codigo409(e *opclient.Error) string {
+	if e == nil {
+		return ""
+	}
+	return e.Codigo
+}
+
+// FijarEta reenvia la captura manual del ETA a operacion.fijarEta (ADR 20).
+func (a *OperacionHTTP) FijarEta(ctx context.Context, id opclient.Id, body opclient.EtaEntrada) (*opclient.Viaje, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.FijarEtaWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("FijarEta", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("FijarEta", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}
+
+// AsignarRecursos reenvia la reserva atomica de la escolta a
+// operacion.asignarRecursos (ADR 31).
+func (a *OperacionHTTP) AsignarRecursos(ctx context.Context, id opclient.Id, body opclient.AsignacionEntrada) (*opclient.Asignacion, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.AsignarRecursosWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("AsignarRecursos", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("AsignarRecursos", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}
+
+// RegistrarEntradaBitacora reenvia una entrada append-only a
+// operacion.registrarEntradaBitacora; el autor sale del Bearer propagado.
+func (a *OperacionHTTP) RegistrarEntradaBitacora(ctx context.Context, id opclient.Id, body opclient.EntradaBitacoraEntrada) (*opclient.EntradaBitacora, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.RegistrarEntradaBitacoraWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("RegistrarEntradaBitacora", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("RegistrarEntradaBitacora", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// AbrirIncidencia reenvia a operacion.abrirIncidencia; el rol del Bearer decide
+// la facultad.
+func (a *OperacionHTTP) AbrirIncidencia(ctx context.Context, id opclient.Id, body opclient.IncidenciaEntrada) (*opclient.Incidencia, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.AbrirIncidenciaWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("AbrirIncidencia", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeRespuesta("AbrirIncidencia", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON201, nil
+}
+
+// ResolverIncidencia reenvia a operacion.resolverIncidencia (solo supervisor o
+// administrador, lo impone operacion).
+func (a *OperacionHTTP) ResolverIncidencia(ctx context.Context, id, iid opclient.Id, body opclient.ResolucionIncidenciaEntrada) (*opclient.Incidencia, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ResolverIncidenciaWithResponse(ctx, id, iid, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ResolverIncidencia", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ResolverIncidencia", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ListarEstadias lee UNA pagina de estadias del viaje (operacion.listarEstadias).
+func (a *OperacionHTTP) ListarEstadias(ctx context.Context, id opclient.Id, params opclient.ListarEstadiasParams) (*opclient.PaginaEstadias, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarEstadiasWithResponse(ctx, id, &params, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarEstadias", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarEstadias", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// AbrirEstadia reenvia a operacion.abrirEstadia.
+func (a *OperacionHTTP) AbrirEstadia(ctx context.Context, id opclient.Id, body opclient.EstadiaEntrada) (*opclient.Estadia, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.AbrirEstadiaWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("AbrirEstadia", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("AbrirEstadia", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// CerrarEstadia reenvia a operacion.cerrarEstadia. El cuerpo es vacio por
+// contrato: el servidor fija el cierre.
+func (a *OperacionHTTP) CerrarEstadia(ctx context.Context, id, eid opclient.Id) (*opclient.Estadia, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CerrarEstadiaWithResponse(ctx, id, eid, opclient.CierreEstadiaEntrada{}, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("CerrarEstadia", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("CerrarEstadia", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}
