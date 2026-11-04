@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026-11-04 16:40 — platform-go v0.1.9 y el cuerpo de error ya no filtra la causa interna
+
+**Para quién:** los frontends y quien llama al `bff` con un token. Cambian dos cosas que observan:
+- Un token verificado que no trae claim `audiencia` ni `rol` ahora recibe 401 `no_autorizado`; antes se tomaba como audiencia Interno, que no se acota por tenant (DEC-129). Con `audiencia` explícita, rol `cliente` o un rol interno, nada cambia.
+- El `mensaje` de un error ya no trae la causa envuelta. `escribirError` escribía `err.Error()`, y `PlatformError.Error()` concatena la causa: texto de Postgres o el cuerpo de un aguas-abajo llegaban al cliente.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `pf-pkg-platform-go` v0.1.8 → v0.1.9 (PR #41 de platform-go).
+- `internal/agregacion/handlers.go`: `escribirError` emite `mensajePublico(err)`, el `Message` del `PlatformError` más externo, y `"error interno"` para un error fuera de la taxonomía. Mismo criterio que `boundary.WriteError` de `mensajeria`. `codigo` sigue saliendo de `platformerrors.CodigoDe`, así que los 409 conservan su código de máquina (#69). Es el único escritor de errores del bff: todos los handlers de `agregacion` pasan por él.
+- `internal/agregacion/escribir_error_test.go` (nuevo): Roto con causa envuelta, Degradado envuelto con `%w`, error ajeno y 409 con código de máquina; el cuerpo se compara exacto. Las dos primeras fallan sin el arreglo (se ve el texto de Postgres en el cuerpo).
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go build ./...` (incluye `./cmd/...`), `go test -race ./...`, `arch-test` (v0.1.1 del CI y v0.1.9) en verde. Ninguna prueba arma un token sin rol contra el `auth.Verifier` real, así que no se tocó ningún fixture.
+
 ## 2026-11-04 16:35 — Los 409 de mensajeria conservan su código por HTTP
 
 **Para quién:** los frontends, cuando el `bff` corre separado de `mensajeria` (carril HTTP, sin `core`).
