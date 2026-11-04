@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## 2026-11-04 HORA — Emergencias del monitoreo y bandeja de Reacción (E8-T18, `tracer.37`)
+## 2026-11-04 15:12 — Emergencias del monitoreo y bandeja de Reacción (E8-T18, `tracer.37`)
 
 **Para quién:** el panel interno. El monitoreo ya puede listar, activar y anotar casos desde el viaje, y Reacción tiene su bandeja y el detalle del caso con el viaje y la escolta. También el portal cliente: activar sobre un viaje terminal ahora responde 409 y la reentrega 200.
 
