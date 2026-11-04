@@ -62,6 +62,13 @@ var operacionesFaseA = []rutaContrato{
 	{"listarEstadias", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias", true},
 	{"abrirEstadia", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias", true},
 	{"cerrarEstadia", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias/00000000-0000-0000-0000-000000000000", true},
+	// Flujo interno, grupo 2 (E8-T9/T10/T12/T13).
+	{"listarUnidades", http.MethodGet, "/api/v1/unidades", true},
+	{"completarFechaHora", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/fecha-hora", true},
+	{"listarIncidencias", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/incidencias", true},
+	{"obtenerFicha", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/ficha", true},
+	{"guardarFicha", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/ficha", true},
+	{"listarGps", http.MethodGet, "/api/v1/gps", true},
 	// Dashboard de monitoreo y evidencia del viaje (E8-T17).
 	{"reporteViajes", http.MethodGet, "/api/v1/reportes/viajes", true},
 	{"reporteEstados", http.MethodGet, "/api/v1/reportes/estados", true},

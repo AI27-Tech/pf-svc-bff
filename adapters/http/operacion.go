@@ -1,7 +1,9 @@
 package http
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -357,4 +359,107 @@ func (a *OperacionHTTP) DescargarAdjunto(ctx context.Context, id, aid opclient.I
 		return nil, errores.DeStatus("DescargarAdjunto", resp.StatusCode())
 	}
 	return resp.JSON200, nil
+}
+
+// ListarUnidades reenvia a operacion.listarUnidades (roster para asignar).
+func (a *OperacionHTTP) ListarUnidades(ctx context.Context, params opclient.ListarUnidadesParams) (*opclient.PaginaUnidades, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarUnidadesWithResponse(ctx, &params, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarUnidades", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarUnidades", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// CompletarFechaHora reenvia a operacion.completarFechaHora; propaga el codigo
+// del 409 (viaje_en_estado_terminal).
+func (a *OperacionHTTP) CompletarFechaHora(ctx context.Context, id opclient.Id, body opclient.FechaHoraEntrada) (*opclient.Viaje, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CompletarFechaHoraWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("CompletarFechaHora", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("CompletarFechaHora", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}
+
+// ListarIncidencias reenvia a operacion.listarIncidencias (histórico del viaje).
+func (a *OperacionHTTP) ListarIncidencias(ctx context.Context, id opclient.Id, params opclient.ListarIncidenciasParams) (*opclient.PaginaIncidencias, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarIncidenciasWithResponse(ctx, id, &params, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarIncidencias", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarIncidencias", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ObtenerFicha reenvia a operacion.obtenerFicha.
+func (a *OperacionHTTP) ObtenerFicha(ctx context.Context, id opclient.Id) (*opclient.FichaTecnica, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ObtenerFichaWithResponse(ctx, id, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ObtenerFicha", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ObtenerFicha", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// GuardarFicha reenvia a operacion.guardarFicha. El cuerpo se arma a mano porque
+// el tipo generado serializa Tracto nil como `"tracto": null`, que operacion lee
+// como borrar: aquí nil omite la propiedad (no tocar) y &Tracto{} viaja como null
+// (borrar), la misma regla que el puerto.
+func (a *OperacionHTTP) GuardarFicha(ctx context.Context, id opclient.Id, body opclient.FichaTecnicaEntrada) (*opclient.FichaTecnica, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	raw, err := cuerpoFicha(body)
+	if err != nil {
+		return nil, errores.DeTransporte("GuardarFicha", err)
+	}
+	resp, err := a.cli.GuardarFichaWithBodyWithResponse(ctx, id, "application/json", bytes.NewReader(raw), conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("GuardarFicha", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("GuardarFicha", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// cuerpoFicha serializa la entrada de la ficha respetando ausente != null en el
+// tracto (ver GuardarFicha).
+func cuerpoFicha(body opclient.FichaTecnicaEntrada) ([]byte, error) {
+	props := map[string]any{}
+	if body.Contenedores != nil {
+		props["contenedores"] = body.Contenedores
+	}
+	if body.GpsIds != nil {
+		props["gps_ids"] = body.GpsIds
+	}
+	if t := body.Tracto; t != nil {
+		if *t == (opclient.Tracto{}) {
+			props["tracto"] = nil
+		} else {
+			props["tracto"] = t
+		}
+	}
+	return json.Marshal(props)
 }

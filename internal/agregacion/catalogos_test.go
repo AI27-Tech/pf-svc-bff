@@ -22,6 +22,10 @@ type fakeCatalogos struct {
 	clientes  map[catclient.Id]*catclient.Cliente
 	vehiculos map[catclient.Id]*catclient.Vehiculo
 	custodios map[catclient.Id]*catclient.Custodio
+
+	// Catálogo de GPS (E8-T12): respuesta y params recibidos.
+	gps        *catclient.PaginaGps
+	gpsRecibio *catclient.ListarGpsParams
 }
 
 func (f *fakeCatalogos) ObtenerCliente(ctx context.Context, bearer string, id catclient.Id) (*catclient.Cliente, error) {

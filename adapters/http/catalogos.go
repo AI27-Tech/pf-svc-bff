@@ -84,3 +84,19 @@ func (a *CatalogosHTTP) ListarTiposServicio(ctx context.Context, bearer string, 
 	}
 	return resp.JSON200, nil
 }
+
+// ListarGps reenvía a catalogos.listarGps: solo dispositivos activos (filtro en
+// servidor, DEC-104 #5). Un cursor no UUID es el 400 de catalogos.
+func (a *CatalogosHTTP) ListarGps(ctx context.Context, bearer string, params catclient.ListarGpsParams) (*catclient.PaginaGps, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarGpsWithResponse(ctx, &params, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarGps", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarGps", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
