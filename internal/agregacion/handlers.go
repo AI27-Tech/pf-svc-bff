@@ -452,8 +452,8 @@ func (h *Handlers) ListarEmergenciasCliente(w http.ResponseWriter, r *http.Reque
 }
 
 // ActivarEmergenciaCliente delega en mensajeria.activarEmergencia (idempotente
-// por activacion_id). Devuelve 201 (nuevo) o 200 (reentrega) con la vista
-// cliente del caso. Ruta protegida.
+// por activacion_id). Rechaza el viaje terminal con 409 (DEC-135 #5). Devuelve
+// 201 (nuevo) o 200 (reentrega) con la vista cliente del caso. Ruta protegida.
 func (h *Handlers) ActivarEmergenciaCliente(w http.ResponseWriter, r *http.Request) {
 	id, err := uuidDe(r.PathValue("id"))
 	if err != nil {
@@ -465,13 +465,12 @@ func (h *Handlers) ActivarEmergenciaCliente(w http.ResponseWriter, r *http.Reque
 		escribirError(w, err)
 		return
 	}
-	caso, err := h.deps.Mensajeria.ActivarEmergencia(r.Context(), r.Header.Get("Authorization"), id,
-		msgclient.ActivarEmergenciaEntrada{ActivacionId: cuerpo.ActivacionId})
+	caso, status, err := h.activar(r, id, cuerpo.ActivacionId)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
-	escribirJSON(w, http.StatusCreated, aEmergenciaCliente(caso))
+	escribirJSON(w, status, aEmergenciaCliente(caso))
 }
 
 // AgregarNotaEmergenciaCliente delega en mensajeria.agregarNotaEmergencia. La
@@ -1129,23 +1128,6 @@ func versionEsperadaDe(r *http.Request) (msgclient.VersionReclamo, error) {
 		return 0, platformerrors.NewValidacion("bff: version_esperada invalida: %v", err)
 	}
 	return v, nil
-}
-
-// ListarEmergenciasPanel delega en mensajeria.listarEmergencias y reenvía la
-// vista interna completa (origen, actor, reclamo). mensajeria proyecta según la
-// audiencia del token. Ruta protegida del panel interno.
-func (h *Handlers) ListarEmergenciasPanel(w http.ResponseWriter, r *http.Request) {
-	id, err := uuidDe(r.PathValue("id"))
-	if err != nil {
-		escribirError(w, platformerrors.NewValidacion("bff: listarEmergenciasPanel: id invalido"))
-		return
-	}
-	pagina, err := h.deps.Mensajeria.ListarEmergencias(r.Context(), r.Header.Get("Authorization"), id)
-	if err != nil {
-		escribirError(w, err)
-		return
-	}
-	escribirJSON(w, http.StatusOK, pagina)
 }
 
 // ReclamarEmergenciaPanel delega en mensajeria.reclamarEmergencia. El operador

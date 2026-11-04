@@ -66,22 +66,22 @@ func (a *MensajeriaHTTP) ListarEmergencias(ctx context.Context, bearer string, v
 }
 
 // ActivarEmergencia reenvía a mensajeria.activarEmergencia. Idempotente por
-// activacion_id; 200 (reentrega) o 201 (nuevo) traen el caso.
-func (a *MensajeriaHTTP) ActivarEmergencia(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.ActivarEmergenciaEntrada) (*msgclient.CasoEmergencia, error) {
+// activacion_id; 201 (nuevo) o 200 (reentrega, idempotente=true) traen el caso.
+func (a *MensajeriaHTTP) ActivarEmergencia(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.ActivarEmergenciaEntrada) (*msgclient.CasoEmergencia, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
 	resp, err := a.cli.ActivarEmergenciaWithResponse(ctx, viajeID, body, conBearer(bearer))
 	if err != nil {
-		return nil, errores.DeTransporte("ActivarEmergencia", err)
+		return nil, false, errores.DeTransporte("ActivarEmergencia", err)
 	}
 	if resp.JSON201 != nil {
-		return resp.JSON201, nil
+		return resp.JSON201, false, nil
 	}
 	if resp.JSON200 != nil {
-		return resp.JSON200, nil
+		return resp.JSON200, true, nil
 	}
-	return nil, errores.DeStatus("ActivarEmergencia", resp.StatusCode())
+	return nil, false, errores.DeStatus("ActivarEmergencia", resp.StatusCode())
 }
 
 // AgregarNotaEmergencia reenvía a mensajeria.agregarNotaEmergencia. La respuesta

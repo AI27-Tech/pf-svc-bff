@@ -8,6 +8,7 @@ import (
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
 	catclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/catalogos"
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
+	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/google/uuid"
 )
 
@@ -16,6 +17,30 @@ type fakeCatalogos struct {
 	tiposServicio  *catclient.PaginaValoresCatalogo
 	bearerRecibido string
 	err            error
+
+	// Lecturas por id del detalle de Reacción (E8-T18).
+	clientes  map[catclient.Id]*catclient.Cliente
+	vehiculos map[catclient.Id]*catclient.Vehiculo
+	custodios map[catclient.Id]*catclient.Custodio
+}
+
+func (f *fakeCatalogos) ObtenerCliente(ctx context.Context, bearer string, id catclient.Id) (*catclient.Cliente, error) {
+	if c, ok := f.clientes[id]; ok {
+		return c, nil
+	}
+	return nil, platformerrors.NewNoEncontrado("cliente %s", id)
+}
+func (f *fakeCatalogos) ObtenerVehiculo(ctx context.Context, bearer string, id catclient.Id) (*catclient.Vehiculo, error) {
+	if v, ok := f.vehiculos[id]; ok {
+		return v, nil
+	}
+	return nil, platformerrors.NewNoEncontrado("vehiculo %s", id)
+}
+func (f *fakeCatalogos) ObtenerCustodio(ctx context.Context, bearer string, id catclient.Id) (*catclient.Custodio, error) {
+	if c, ok := f.custodios[id]; ok {
+		return c, nil
+	}
+	return nil, platformerrors.NewNoEncontrado("custodio %s", id)
 }
 
 func (f *fakeCatalogos) ListarClientes(ctx context.Context, bearer string, params catclient.ListarClientesParams) (*catclient.PaginaClientes, error) {

@@ -100,6 +100,10 @@ type OperacionPort interface {
 	ListarAdjuntos(ctx context.Context, id opclient.Id) (*opclient.PaginaAdjuntos, error)
 	CrearIntencionSubidaAdjunto(ctx context.Context, id opclient.Id, body opclient.IntencionSubidaAdjuntoEntrada) (*opclient.IntencionSubidaAdjunto, error)
 	DescargarAdjunto(ctx context.Context, id, aid opclient.Id) (*opclient.DescargaAdjunto, error)
+
+	// ObtenerAsignacion lee la escolta vigente del viaje (unidades del roster con
+	// vehículo y custodios por id) para el detalle de Reacción (E8-T18).
+	ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error)
 }
 
 // ReportesPort es la arista a reportes: el dashboard de monitoreo (E6-HU-025 /
@@ -121,7 +125,9 @@ type MensajeriaPort interface {
 	// audiencia (vista mínima para el cliente, ADR 21 §6).
 	ListarEmergencias(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.PaginaEmergencias, error)
 	// ActivarEmergencia activa un caso (idempotente por activacion_id).
-	ActivarEmergencia(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.ActivarEmergenciaEntrada) (*msgclient.CasoEmergencia, error)
+	// idempotente es true en la reentrega de la misma activación (200), para que
+	// el handler responda 200 y no 201.
+	ActivarEmergencia(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.ActivarEmergenciaEntrada) (caso *msgclient.CasoEmergencia, idempotente bool, err error)
 	// AgregarNotaEmergencia agrega una nota al caso (append-only).
 	AgregarNotaEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.NotaEmergenciaEntrada) error
 
@@ -144,6 +150,19 @@ type MensajeriaPort interface {
 	ResolverEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id, body msgclient.ResolverEmergenciaJSONRequestBody) (*msgclient.CasoEmergencia, error)
 	// CerrarEmergencia cierra el caso (sin cuerpo). Devuelve el caso cerrado.
 	CerrarEmergencia(ctx context.Context, bearer string, viajeID, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error)
+
+	// --- Bandeja de Reacción y caso por su id (tracer.34, DEC-121) -------
+	// Mismos operationId que mensajeria. mensajeria autoriza por rol (DEC-130,
+	// DEC-131); bff propaga el Bearer y reenvía, salvo ObtenerEmergencia, cuyo
+	// caso usa el handler para componer el detalle con el viaje.
+	ListarBandejaEmergencias(ctx context.Context, bearer string, params msgclient.ListarBandejaEmergenciasParams) (*msgclient.PaginaBandejaEmergencias, error)
+	ObtenerEmergencia(ctx context.Context, bearer string, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error)
+	ListarNotasEmergenciaPorId(ctx context.Context, bearer string, emergenciaID msgclient.Id, params msgclient.ListarNotasEmergenciaPorIdParams) (*msgclient.PaginaNotasEmergencia, error)
+	ReclamarEmergenciaPorId(ctx context.Context, bearer string, emergenciaID msgclient.Id, body msgclient.VersionEsperadaEntrada) (*msgclient.Reclamo, error)
+	LiberarReclamoEmergenciaPorId(ctx context.Context, bearer string, emergenciaID, reclamoID msgclient.Id, params msgclient.LiberarReclamoEmergenciaPorIdParams) error
+	TransferirEmergenciaPorId(ctx context.Context, bearer string, emergenciaID msgclient.Id, body msgclient.TransferenciaEntrada) (*msgclient.Reclamo, error)
+	ResolverEmergenciaPorId(ctx context.Context, bearer string, emergenciaID msgclient.Id, body msgclient.ResolucionEmergenciaEntrada) (*msgclient.EmergenciaReaccion, error)
+	CerrarEmergenciaPorId(ctx context.Context, bearer string, emergenciaID msgclient.Id) (*msgclient.CasoEmergencia, error)
 
 	// --- Conversación del viaje para el portal cliente (E9-T8) -----------
 	// La conversación se identifica por el viaje (DEC-029): el id de ruta de
@@ -206,6 +225,13 @@ type CatalogosPort interface {
 	// selector del wizard de solicitud del cliente (E9-T4). El bff fija el tipo
 	// (el cliente no elige familia) y filtra a los activo al recortar.
 	ListarTiposServicio(ctx context.Context, bearer string, params catclient.ListarValoresCatalogoParams) (*catclient.PaginaValoresCatalogo, error)
+
+	// Lecturas por id para el detalle de Reacción (E8-T18): nombre del cliente,
+	// económico y placas del vehículo, nombre y teléfono del custodio. Versión
+	// vigente (sin a_fecha).
+	ObtenerCliente(ctx context.Context, bearer string, id catclient.Id) (*catclient.Cliente, error)
+	ObtenerVehiculo(ctx context.Context, bearer string, id catclient.Id) (*catclient.Vehiculo, error)
+	ObtenerCustodio(ctx context.Context, bearer string, id catclient.Id) (*catclient.Custodio, error)
 }
 
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New

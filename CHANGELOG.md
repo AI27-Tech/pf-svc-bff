@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 2026-11-04 HORA — Emergencias del monitoreo y bandeja de Reacción (E8-T18, `tracer.37`)
+
+**Para quién:** el panel interno. El monitoreo ya puede listar, activar y anotar casos desde el viaje, y Reacción tiene su bandeja y el detalle del caso con el viaje y la escolta. También el portal cliente: activar sobre un viaje terminal ahora responde 409 y la reentrega 200.
+
+**Resumen:** sirve las 3 rutas del monitoreo de `tracer.37` (DEC-135) y las 8 por id de `tracer.34` (DEC-121), que estaban en el contrato sin código. Los roles los revisa `mensajeria`; el `bff` propaga el Bearer.
+
+**Comportamiento:**
+- `GET /api/v1/panel/viajes/{id}/emergencias` (`listarEmergenciasViaje`): recorta cada caso a `EmergenciaViaje` (id, estado, activada_en), incluidos los cerrados. Antes la ruta existía sin contrato y devolvía el caso completo.
+- `POST /api/v1/panel/viajes/{id}/emergencias` (`activarEmergenciaInterno`) y `POST /api/v1/panel/viajes/{id}/emergencias/{eid}/notas` (`agregarNotaEmergenciaInterno`): nuevas.
+- Las dos activaciones (cliente y monitoreo) leen el viaje y responden 409 `viaje_en_estado_terminal` en `CERRADO`, `CANCELADO`, `RECHAZADO_POR_AI27` y `RECHAZADO_POR_CLIENTE` sin llamar a `mensajeria` (DEC-135 #5). Queda una carrera entre la lectura y la activación (DT-16). Responden 201 al crear y 200 en la reentrega; antes la ruta de cliente siempre respondía 201.
+- `/api/v1/panel/emergencias...`: bandeja, notas, reclamar, liberar (204), transferir, resolver y cerrar reenvían a la operación homónima de `mensajeria`.
+- `GET /api/v1/panel/emergencias/{eid}` (`obtenerEmergencia`) compone `DetalleEmergenciaReaccion`: el caso de `mensajeria`, el viaje de `operacion` (estado, origen, destinos, fechas, ETA), el nombre del cliente de `catalogos` y la escolta de `operacion.obtenerAsignacion` con el económico y las placas del vehículo y el nombre y teléfono de cada custodio de `catalogos`. Sin `viaje_id`. Si falla cualquier lectura, el detalle falla: Reacción no recibe una escolta incompleta como si fuera la real.
+
+**Cambios:**
+- `internal/agregacion/ports.go`: `MensajeriaPort.ActivarEmergencia` devuelve además `idempotente`; 8 métodos por id; `OperacionPort.ObtenerAsignacion`; `CatalogosPort.ObtenerCliente`, `ObtenerVehiculo` y `ObtenerCustodio`.
+- `internal/agregacion/emergencias.go`: handlers nuevos, `rechazarViajeTerminal` y la composición del detalle. `handlers.go`: `ActivarEmergenciaCliente` usa la misma activación; se retira `ListarEmergenciasPanel`.
+- `adapters/http/emergencias_por_id.go`: los métodos HTTP nuevos; `adapters/http/mensajeria.go`: `ActivarEmergencia` distingue 200 de 201.
+- `bff.go`: rutas nuevas. Las cinco acciones por viaje de E7 (sin contrato) se conservan.
+- `go.mod`: `api-client-go` `v0.1.0-tracer.36` → `v0.1.0-tracer.37`.
+- Pruebas: fila mínima sin origen ni actor; 409 en los 4 estados terminales por las dos rutas sin llamar a `mensajeria`, y 201 en `SOLICITADO`; 200 en la reentrega; detalle con viaje, cliente y escolta, y error si falta un custodio.
+
+**Archivos modificados:**
+- `internal/agregacion/ports.go`, `emergencias.go`, `handlers.go`, `emergencia_test.go`, `handlers_test.go`, `catalogos_test.go`
+- `adapters/http/emergencias_por_id.go`, `adapters/http/mensajeria.go`
+- `bff.go`, `go.mod`, `go.sum`, `CHANGELOG.md`
+
 ## 2026:11:03 — reporteViajes acepta en_curso (E8-T17, DT-10)
 
 **Para quién:** el panel interno, cuyo dashboard abre con «viajes en curso». Apilado sobre la rama de E8-T17 (el dashboard y la evidencia); sube el pin a `tracer.36`.
