@@ -15,6 +15,7 @@ import (
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
 	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
+	repclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/reportes"
 )
 
 // IdentidadPort es la arista a identidad. bff reenvia credenciales y comandos de
@@ -91,6 +92,24 @@ type OperacionPort interface {
 	ListarEstadias(ctx context.Context, id opclient.Id, params opclient.ListarEstadiasParams) (*opclient.PaginaEstadias, error)
 	AbrirEstadia(ctx context.Context, id opclient.Id, body opclient.EstadiaEntrada) (*opclient.Estadia, error)
 	CerrarEstadia(ctx context.Context, id, eid opclient.Id) (*opclient.Estadia, error)
+
+	// Evidencia del viaje (E6-HU-027 / E8-T17). Reenvían al operationId homónimo
+	// de operacion. Los bytes NO pasan por bff: la subida y la descarga usan la
+	// URL de vida corta del almacenamiento de objetos, y la auditoría de cada
+	// acceso la escribe operacion.
+	ListarAdjuntos(ctx context.Context, id opclient.Id) (*opclient.PaginaAdjuntos, error)
+	CrearIntencionSubidaAdjunto(ctx context.Context, id opclient.Id, body opclient.IntencionSubidaAdjuntoEntrada) (*opclient.IntencionSubidaAdjunto, error)
+	DescargarAdjunto(ctx context.Context, id, aid opclient.Id) (*opclient.DescargaAdjunto, error)
+}
+
+// ReportesPort es la arista a reportes: el dashboard de monitoreo (E6-HU-025 /
+// E8-T17). Cada método reenvía al operationId homónimo y devuelve el tipo del
+// cliente de reportes sin recortar: proyeccion_al y stale deben llegar al panel
+// (DEC-033). reportes autoriza la audiencia por los claims; el Bearer del
+// usuario viaja en el ctx (tokenctx).
+type ReportesPort interface {
+	ReporteViajes(ctx context.Context, params repclient.ReporteViajesParams) (*repclient.ReporteViajes, error)
+	ReporteEstados(ctx context.Context, params repclient.ReporteEstadosParams) (*repclient.ReporteEstados, error)
 }
 
 // MensajeriaPort es la arista a mensajeria: el portal cliente de emergencia
@@ -196,4 +215,5 @@ type Deps struct {
 	Operacion  OperacionPort
 	Mensajeria MensajeriaPort
 	Catalogos  CatalogosPort
+	Reportes   ReportesPort
 }

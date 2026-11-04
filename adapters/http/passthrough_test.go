@@ -17,13 +17,16 @@ import (
 // request saliente y devolviendo una respuesta fija (200 si status es 0) con un
 // cuerpo JSON.
 type doerCaptura struct {
-	authRecibido string
-	cuerpo       string
-	status       int
+	authRecibido  string
+	rutaRecibida  string
+	queryRecibida string
+	cuerpo        string
+	status        int
 }
 
 func (d *doerCaptura) Do(req *http.Request) (*http.Response, error) {
 	d.authRecibido = req.Header.Get("Authorization")
+	d.rutaRecibida, d.queryRecibida = req.URL.Path, req.URL.RawQuery
 	status := d.status
 	if status == 0 {
 		status = http.StatusOK
