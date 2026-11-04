@@ -104,6 +104,22 @@ type OperacionPort interface {
 	// ObtenerAsignacion lee la escolta vigente del viaje (unidades del roster con
 	// vehículo y custodios por id) para el detalle de Reacción (E8-T18).
 	ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error)
+
+	// Flujo interno, grupo 2 (E8-T9/T10/T12/T13). Mismo patrón: reenvío al
+	// operationId homónimo; operacion decide rol y estado.
+
+	// ListarUnidades lee UNA página del roster para asignar la escolta.
+	ListarUnidades(ctx context.Context, params opclient.ListarUnidadesParams) (*opclient.PaginaUnidades, error)
+	// CompletarFechaHora fija fecha_hora_servicio antes de aprobar. Devuelve el
+	// Viaje plano; el handler recompone el detalle interno con ObtenerViaje.
+	CompletarFechaHora(ctx context.Context, id opclient.Id, body opclient.FechaHoraEntrada) (*opclient.Viaje, error)
+	// ListarIncidencias lee UNA página del histórico de incidencias del viaje.
+	ListarIncidencias(ctx context.Context, id opclient.Id, params opclient.ListarIncidenciasParams) (*opclient.PaginaIncidencias, error)
+	// ObtenerFicha y GuardarFicha leen y editan por partes la ficha técnica
+	// (DEC-104). En GuardarFicha, Tracto nil no toca el tracto y &Tracto{} lo
+	// borra (el handler traduce `"tracto": null` a &Tracto{}).
+	ObtenerFicha(ctx context.Context, id opclient.Id) (*opclient.FichaTecnica, error)
+	GuardarFicha(ctx context.Context, id opclient.Id, body opclient.FichaTecnicaEntrada) (*opclient.FichaTecnica, error)
 }
 
 // ReportesPort es la arista a reportes: el dashboard de monitoreo (E6-HU-025 /
@@ -232,6 +248,10 @@ type CatalogosPort interface {
 	ObtenerCliente(ctx context.Context, bearer string, id catclient.Id) (*catclient.Cliente, error)
 	ObtenerVehiculo(ctx context.Context, bearer string, id catclient.Id) (*catclient.Vehiculo, error)
 	ObtenerCustodio(ctx context.Context, bearer string, id catclient.Id) (*catclient.Custodio, error)
+
+	// ListarGps lista una página de dispositivos GPS activos para el selector de
+	// la ficha técnica (E8-T12, DEC-104 #5). El filtro lo resuelve catalogos.
+	ListarGps(ctx context.Context, bearer string, params catclient.ListarGpsParams) (*catclient.PaginaGps, error)
 }
 
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New

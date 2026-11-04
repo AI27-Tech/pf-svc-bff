@@ -578,6 +578,11 @@ type fakeOperacion struct {
 	// Escolta del detalle de Reacción (E8-T18).
 	escolta    *opclient.EscoltaVigente
 	escoltaErr error
+
+	// Flujo interno, grupo 2: respuestas de roster, incidencias y ficha.
+	unidades          *opclient.PaginaUnidades
+	paginaIncidencias *opclient.PaginaIncidencias
+	ficha             *opclient.FichaTecnica
 }
 
 func (f *fakeOperacion) ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error) {

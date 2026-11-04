@@ -17,16 +17,21 @@ import (
 // request saliente y devolviendo una respuesta fija (200 si status es 0) con un
 // cuerpo JSON.
 type doerCaptura struct {
-	authRecibido  string
-	rutaRecibida  string
-	queryRecibida string
-	cuerpo        string
-	status        int
+	authRecibido   string
+	rutaRecibida   string
+	queryRecibida  string
+	cuerpoRecibido string
+	cuerpo         string
+	status         int
 }
 
 func (d *doerCaptura) Do(req *http.Request) (*http.Response, error) {
 	d.authRecibido = req.Header.Get("Authorization")
 	d.rutaRecibida, d.queryRecibida = req.URL.Path, req.URL.RawQuery
+	if req.Body != nil {
+		b, _ := io.ReadAll(req.Body) // doble de prueba: un fallo de lectura deja el cuerpo vacío
+		d.cuerpoRecibido = string(b)
+	}
 	status := d.status
 	if status == 0 {
 		status = http.StatusOK
@@ -116,5 +121,41 @@ func TestOperacionAsignarPropagaCodigoDe409(t *testing.T) {
 	}
 	if doer.authRecibido != "Bearer tok-jefe" {
 		t.Errorf("Authorization aguas abajo = %q, want %q", doer.authRecibido, "Bearer tok-jefe")
+	}
+}
+
+// TestOperacionGuardarFichaTractoAusenteNoEsNull: el tipo generado serializaría
+// Tracto nil como `"tracto": null` (borrar en operacion). El adaptador omite la
+// propiedad cuando es nil y manda null solo para &Tracto{}.
+func TestOperacionGuardarFichaTractoAusenteNoEsNull(t *testing.T) {
+	gps := []opclient.Id{uuid.MustParse("44444444-4444-4444-4444-444444444444")}
+	placas := "ABC-123"
+	casos := []struct {
+		nombre string
+		body   opclient.FichaTecnicaEntrada
+		want   string
+	}{
+		{"ausente se omite", opclient.FichaTecnicaEntrada{GpsIds: &gps}, `{"gps_ids":["44444444-4444-4444-4444-444444444444"]}`},
+		{"vacío viaja como null", opclient.FichaTecnicaEntrada{Tracto: &opclient.Tracto{}}, `{"tracto":null}`},
+		{"con datos viaja tal cual", opclient.FichaTecnicaEntrada{Tracto: &opclient.Tracto{Placas: &placas}}, `{"tracto":{"placas":"ABC-123"}}`},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			doer := &doerCaptura{cuerpo: `{"viaje_id":"44444444-4444-4444-4444-444444444444","tracto":null}`}
+			ad, err := NewOperacionHTTP("http://operacion.local", doer)
+			if err != nil {
+				t.Fatalf("NewOperacionHTTP: %v", err)
+			}
+			ctx := tokenctx.Con(context.Background(), "Bearer tok-mon")
+			if _, err := ad.GuardarFicha(ctx, uuid.New(), c.body); err != nil {
+				t.Fatalf("GuardarFicha: %v", err)
+			}
+			if doer.cuerpoRecibido != c.want {
+				t.Errorf("cuerpo aguas abajo = %s, se esperaba %s", doer.cuerpoRecibido, c.want)
+			}
+			if doer.authRecibido != "Bearer tok-mon" {
+				t.Errorf("Authorization aguas abajo = %q", doer.authRecibido)
+			}
+		})
 	}
 }

@@ -199,6 +199,15 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/viajes/{id}/estadias", protegido(http.HandlerFunc(m.handlers.ListarEstadias)))
 	mux.Handle("POST /api/v1/viajes/{id}/estadias", protegido(http.HandlerFunc(m.handlers.AbrirEstadia)))
 	mux.Handle("PATCH /api/v1/viajes/{id}/estadias/{eid}", protegido(http.HandlerFunc(m.handlers.CerrarEstadia)))
+	// Flujo interno, grupo 2 (E8-T9/T10/T12/T13): roster, fecha/hora del
+	// servicio, histórico de incidencias, ficha técnica y catálogo de GPS. Mismas
+	// rutas que las nativas de operacion/catalogos; audiencia Interna.
+	mux.Handle("GET /api/v1/unidades", protegido(http.HandlerFunc(m.handlers.ListarUnidades)))
+	mux.Handle("PATCH /api/v1/viajes/{id}/fecha-hora", protegido(http.HandlerFunc(m.handlers.CompletarFechaHora)))
+	mux.Handle("GET /api/v1/viajes/{id}/incidencias", protegido(http.HandlerFunc(m.handlers.ListarIncidencias)))
+	mux.Handle("GET /api/v1/viajes/{id}/ficha", protegido(http.HandlerFunc(m.handlers.ObtenerFicha)))
+	mux.Handle("PATCH /api/v1/viajes/{id}/ficha", protegido(http.HandlerFunc(m.handlers.GuardarFicha)))
+	mux.Handle("GET /api/v1/gps", protegido(http.HandlerFunc(m.handlers.ListarGps)))
 	// Dashboard de monitoreo (E8-T17): reenvío a reportes. Los handlers exigen un
 	// rol de monitoreo (monitorista, supervisor, coordinador, administrador); el
 	// resto recibe 403. El reporte sale sin recortar, con proyeccion_al y stale.
