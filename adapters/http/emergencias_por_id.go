@@ -21,7 +21,7 @@ func (a *MensajeriaHTTP) ListarBandejaEmergencias(ctx context.Context, bearer st
 		return nil, errores.DeTransporte("ListarBandejaEmergencias", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ListarBandejaEmergencias", resp.StatusCode())
+		return nil, deMensajeria("ListarBandejaEmergencias", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -34,7 +34,7 @@ func (a *MensajeriaHTTP) ObtenerEmergencia(ctx context.Context, bearer string, e
 		return nil, errores.DeTransporte("ObtenerEmergencia", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ObtenerEmergencia", resp.StatusCode())
+		return nil, deMensajeria("ObtenerEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -47,7 +47,7 @@ func (a *MensajeriaHTTP) ListarNotasEmergenciaPorId(ctx context.Context, bearer 
 		return nil, errores.DeTransporte("ListarNotasEmergenciaPorId", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ListarNotasEmergenciaPorId", resp.StatusCode())
+		return nil, deMensajeria("ListarNotasEmergenciaPorId", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -60,7 +60,7 @@ func (a *MensajeriaHTTP) ReclamarEmergenciaPorId(ctx context.Context, bearer str
 		return nil, errores.DeTransporte("ReclamarEmergenciaPorId", err)
 	}
 	if resp.JSON201 == nil {
-		return nil, errores.DeStatus("ReclamarEmergenciaPorId", resp.StatusCode())
+		return nil, deMensajeria("ReclamarEmergenciaPorId", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON201, nil
 }
@@ -73,7 +73,7 @@ func (a *MensajeriaHTTP) LiberarReclamoEmergenciaPorId(ctx context.Context, bear
 		return errores.DeTransporte("LiberarReclamoEmergenciaPorId", err)
 	}
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return errores.DeStatus("LiberarReclamoEmergenciaPorId", resp.StatusCode())
+		return deMensajeria("LiberarReclamoEmergenciaPorId", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -86,7 +86,7 @@ func (a *MensajeriaHTTP) TransferirEmergenciaPorId(ctx context.Context, bearer s
 		return nil, errores.DeTransporte("TransferirEmergenciaPorId", err)
 	}
 	if resp.JSON201 == nil {
-		return nil, errores.DeStatus("TransferirEmergenciaPorId", resp.StatusCode())
+		return nil, deMensajeria("TransferirEmergenciaPorId", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON201, nil
 }
@@ -99,7 +99,7 @@ func (a *MensajeriaHTTP) ResolverEmergenciaPorId(ctx context.Context, bearer str
 		return nil, errores.DeTransporte("ResolverEmergenciaPorId", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ResolverEmergenciaPorId", resp.StatusCode())
+		return nil, deMensajeria("ResolverEmergenciaPorId", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -112,7 +112,7 @@ func (a *MensajeriaHTTP) CerrarEmergenciaPorId(ctx context.Context, bearer strin
 		return nil, errores.DeTransporte("CerrarEmergenciaPorId", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("CerrarEmergenciaPorId", resp.StatusCode())
+		return nil, deMensajeria("CerrarEmergenciaPorId", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
