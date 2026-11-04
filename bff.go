@@ -239,15 +239,31 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/conversaciones/{id}/recibos/entregado", protegido(http.HandlerFunc(m.handlers.RegistrarReciboEntregado)))
 	mux.Handle("POST /api/v1/conversaciones/{id}/recibos/leido", protegido(http.HandlerFunc(m.handlers.RegistrarReciboLeido)))
 
-	// Carril interno de emergencia (panel de Reacción, E7/tracer.17): listar con
-	// vista completa y las cinco acciones de atención. mensajeria autoriza por
-	// claims; bff propaga el Bearer.
-	mux.Handle("GET /api/v1/panel/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasPanel)))
+	// Carril interno de emergencia por viaje. El GET, el POST y las notas son
+	// las rutas contratadas del monitoreo (tracer.37, DEC-135): fila mínima, 409
+	// sobre viaje terminal, mensajeria revisa el rol. Las cinco acciones por
+	// viaje (E7/tracer.17) no están en el contrato y se conservan tal cual; el
+	// panel de Reacción usa las de por id.
+	mux.Handle("GET /api/v1/panel/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasViaje)))
+	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaInterno)))
+	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaInterno)))
 	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/reclamos", protegido(http.HandlerFunc(m.handlers.ReclamarEmergenciaPanel)))
 	mux.Handle("DELETE /api/v1/panel/viajes/{id}/emergencias/{eid}/reclamos/{rid}", protegido(http.HandlerFunc(m.handlers.LiberarReclamoEmergenciaPanel)))
 	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/transferencias", protegido(http.HandlerFunc(m.handlers.TransferirEmergenciaPanel)))
 	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/resolucion", protegido(http.HandlerFunc(m.handlers.ResolverEmergenciaPanel)))
 	mux.Handle("POST /api/v1/panel/viajes/{id}/emergencias/{eid}/cierre", protegido(http.HandlerFunc(m.handlers.CerrarEmergenciaPanel)))
+
+	// Bandeja de Reacción y caso por su id (tracer.34, DEC-121): sin {id} de
+	// viaje. mensajeria autoriza por rol; obtenerEmergencia compone el detalle con
+	// el viaje y su escolta (DEC-121 #2).
+	mux.Handle("GET /api/v1/panel/emergencias", protegido(http.HandlerFunc(m.handlers.ListarBandejaEmergencias)))
+	mux.Handle("GET /api/v1/panel/emergencias/{eid}", protegido(http.HandlerFunc(m.handlers.ObtenerEmergencia)))
+	mux.Handle("GET /api/v1/panel/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.ListarNotasEmergenciaPorId)))
+	mux.Handle("POST /api/v1/panel/emergencias/{eid}/reclamos", protegido(http.HandlerFunc(m.handlers.ReclamarEmergenciaPorId)))
+	mux.Handle("DELETE /api/v1/panel/emergencias/{eid}/reclamos/{rid}", protegido(http.HandlerFunc(m.handlers.LiberarReclamoEmergenciaPorId)))
+	mux.Handle("POST /api/v1/panel/emergencias/{eid}/transferencias", protegido(http.HandlerFunc(m.handlers.TransferirEmergenciaPorId)))
+	mux.Handle("POST /api/v1/panel/emergencias/{eid}/resolucion", protegido(http.HandlerFunc(m.handlers.ResolverEmergenciaPorId)))
+	mux.Handle("POST /api/v1/panel/emergencias/{eid}/cierre", protegido(http.HandlerFunc(m.handlers.CerrarEmergenciaPorId)))
 }
 
 // Workers devuelve los workers embebidos del modulo (ADR 29 §6). bff tiene uno:
