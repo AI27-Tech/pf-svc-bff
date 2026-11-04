@@ -574,6 +574,20 @@ type fakeOperacion struct {
 	adjuntos    *opclient.PaginaAdjuntos
 	intencion   *opclient.IntencionSubidaAdjunto
 	descargaAdj *opclient.DescargaAdjunto
+
+	// Escolta del detalle de Reacción (E8-T18).
+	escolta    *opclient.EscoltaVigente
+	escoltaErr error
+}
+
+func (f *fakeOperacion) ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error) {
+	if f.escoltaErr != nil {
+		return nil, f.escoltaErr
+	}
+	if f.escolta == nil {
+		return &opclient.EscoltaVigente{ViajeId: id, Unidades: []opclient.Unidad{}}, nil
+	}
+	return f.escolta, nil
 }
 
 // flujo registra la llamada a un método del flujo interno.
