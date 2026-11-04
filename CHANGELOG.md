@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026:11:03 — reporteViajes acepta en_curso (E8-T17, DT-10)
+
+**Para quién:** el panel interno, cuyo dashboard abre con «viajes en curso». Apilado sobre la rama de E8-T17 (el dashboard y la evidencia); sube el pin a `tracer.36`.
+
+**Resumen:** `GET /api/v1/reportes/viajes` acepta el parámetro `en_curso` y hace `desde`/`hasta` opcionales, reenviándolos a `reportes`. El `bff` NO valida la combinación (que sin `en_curso` el rango sea obligatorio): esa regla vive en `reportes`, única autoridad; el `bff` solo parsea formatos y reenvía. Un formato inválido (fecha que no es RFC 3339, `en_curso` no booleano) sí es 400 local, sin tocar el puerto. `reporteEstados` no cambia: sigue exigiendo el rango con `periodoDe`.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `pf-pkg-contracts` `tracer.35` → `tracer.36`. El salto rompió la firma: `ReporteViajesParams.Desde`/`.Hasta` pasan a `*MarcaTiempo` y se añade `EnCurso *bool`; se ajusta la construcción del param.
+- `internal/agregacion/monitoreo.go`: `ReporteViajes` usa `reporteViajesParamsDe` (desde/hasta opcionales + en_curso) en vez de `periodoDe`. Nuevos `reporteViajesParamsDe` y `fechaOpcionalRFC3339`.
+- Pruebas: `monitoreo_test.go` del handler (reenvío de `en_curso` sin rango; formatos inválidos → 400 sin tocar el puerto; se retira el test que exigía rango, ahora responsabilidad de `reportes`) y `adapters/http/monitoreo_test.go` (param con punteros).
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go build ./cmd/api`, `go test ./...` y `arch-test` (v0.1.1) en verde.
+
 ## 2026:11:03 — Dashboard de monitoreo y evidencia del viaje por el bff (E8-T17)
 
 **Para quién:** el panel interno (E8-T17), que solo habla con el `bff`. Hasta ahora el tablero de monitoreo y la evidencia del viaje no tenían ruta en el `bff`; con esta ola el frontend puede subir su pin y construir contra rutas reales.
