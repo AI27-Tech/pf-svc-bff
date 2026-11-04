@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -49,6 +50,19 @@ func conBearer(bearer string) msgclient.RequestEditorFn {
 	}
 }
 
+// deMensajeria traduce el status de mensajeria y, en un 409, conserva el código
+// de máquina del cuerpo Error (emergencia_cerrada, conflicto_version_reclamo,
+// stream_resync_required, …), como DeRespuesta con operacion. Se lee del cuerpo
+// porque no todas las respuestas generadas traen un JSON409 tipado; sin
+// código en el cuerpo queda el conflicto genérico.
+func deMensajeria(op string, status int, cuerpo []byte) error {
+	var e msgclient.Error
+	if status == http.StatusConflict {
+		_ = json.Unmarshal(cuerpo, &e)
+	}
+	return errores.DeRespuesta(op, status, e.Codigo)
+}
+
 // ListarEmergencias reenvía a mensajeria.listarEmergencias. mensajeria proyecta
 // por audiencia según el token (vista mínima para el cliente, ADR 21 §6).
 func (a *MensajeriaHTTP) ListarEmergencias(ctx context.Context, bearer string, viajeID msgclient.Id) (*msgclient.PaginaEmergencias, error) {
@@ -60,7 +74,7 @@ func (a *MensajeriaHTTP) ListarEmergencias(ctx context.Context, bearer string, v
 		return nil, errores.DeTransporte("ListarEmergencias", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ListarEmergencias", resp.StatusCode())
+		return nil, deMensajeria("ListarEmergencias", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -81,7 +95,7 @@ func (a *MensajeriaHTTP) ActivarEmergencia(ctx context.Context, bearer string, v
 	if resp.JSON200 != nil {
 		return resp.JSON200, true, nil
 	}
-	return nil, false, errores.DeStatus("ActivarEmergencia", resp.StatusCode())
+	return nil, false, deMensajeria("ActivarEmergencia", resp.StatusCode(), resp.Body)
 }
 
 // AgregarNotaEmergencia reenvía a mensajeria.agregarNotaEmergencia. La respuesta
@@ -95,7 +109,7 @@ func (a *MensajeriaHTTP) AgregarNotaEmergencia(ctx context.Context, bearer strin
 		return errores.DeTransporte("AgregarNotaEmergencia", err)
 	}
 	if resp.JSON201 == nil {
-		return errores.DeStatus("AgregarNotaEmergencia", resp.StatusCode())
+		return deMensajeria("AgregarNotaEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -116,7 +130,7 @@ func (a *MensajeriaHTTP) ReclamarEmergencia(ctx context.Context, bearer string, 
 		return nil, errores.DeTransporte("ReclamarEmergencia", err)
 	}
 	if resp.JSON201 == nil {
-		return nil, errores.DeStatus("ReclamarEmergencia", resp.StatusCode())
+		return nil, deMensajeria("ReclamarEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON201, nil
 }
@@ -133,7 +147,7 @@ func (a *MensajeriaHTTP) LiberarReclamoEmergencia(ctx context.Context, bearer st
 		return errores.DeTransporte("LiberarReclamoEmergencia", err)
 	}
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return errores.DeStatus("LiberarReclamoEmergencia", resp.StatusCode())
+		return deMensajeria("LiberarReclamoEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -149,7 +163,7 @@ func (a *MensajeriaHTTP) TransferirEmergencia(ctx context.Context, bearer string
 		return nil, errores.DeTransporte("TransferirEmergencia", err)
 	}
 	if resp.JSON201 == nil {
-		return nil, errores.DeStatus("TransferirEmergencia", resp.StatusCode())
+		return nil, deMensajeria("TransferirEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON201, nil
 }
@@ -165,7 +179,7 @@ func (a *MensajeriaHTTP) ResolverEmergencia(ctx context.Context, bearer string, 
 		return nil, errores.DeTransporte("ResolverEmergencia", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ResolverEmergencia", resp.StatusCode())
+		return nil, deMensajeria("ResolverEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -181,7 +195,7 @@ func (a *MensajeriaHTTP) CerrarEmergencia(ctx context.Context, bearer string, vi
 		return nil, errores.DeTransporte("CerrarEmergencia", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("CerrarEmergencia", resp.StatusCode())
+		return nil, deMensajeria("CerrarEmergencia", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -202,7 +216,7 @@ func (a *MensajeriaHTTP) ObtenerConversacion(ctx context.Context, bearer string,
 		return nil, errores.DeTransporte("ObtenerConversacion", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ObtenerConversacion", resp.StatusCode())
+		return nil, deMensajeria("ObtenerConversacion", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -218,7 +232,7 @@ func (a *MensajeriaHTTP) ListarMensajes(ctx context.Context, bearer string, viaj
 		return nil, errores.DeTransporte("ListarMensajes", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ListarMensajes", resp.StatusCode())
+		return nil, deMensajeria("ListarMensajes", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -269,7 +283,7 @@ func (a *MensajeriaHTTP) ListarTrabajoBandeja(ctx context.Context, bearer string
 		return nil, errores.DeTransporte("ListarTrabajoBandeja", err)
 	}
 	if resp.JSON200 == nil {
-		return nil, errores.DeStatus("ListarTrabajoBandeja", resp.StatusCode())
+		return nil, deMensajeria("ListarTrabajoBandeja", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON200, nil
 }
@@ -285,7 +299,7 @@ func (a *MensajeriaHTTP) ReclamarConversacion(ctx context.Context, bearer string
 		return nil, errores.DeTransporte("ReclamarConversacion", err)
 	}
 	if resp.JSON201 == nil {
-		return nil, errores.DeStatus("ReclamarConversacion", resp.StatusCode())
+		return nil, deMensajeria("ReclamarConversacion", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON201, nil
 }
@@ -301,7 +315,7 @@ func (a *MensajeriaHTTP) LiberarReclamo(ctx context.Context, bearer string, conv
 		return errores.DeTransporte("LiberarReclamo", err)
 	}
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return errores.DeStatus("LiberarReclamo", resp.StatusCode())
+		return deMensajeria("LiberarReclamo", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -317,7 +331,7 @@ func (a *MensajeriaHTTP) TransferirConversacion(ctx context.Context, bearer stri
 		return nil, errores.DeTransporte("TransferirConversacion", err)
 	}
 	if resp.JSON201 == nil {
-		return nil, errores.DeStatus("TransferirConversacion", resp.StatusCode())
+		return nil, deMensajeria("TransferirConversacion", resp.StatusCode(), resp.Body)
 	}
 	return resp.JSON201, nil
 }
@@ -333,7 +347,7 @@ func (a *MensajeriaHTTP) MarcarAtendida(ctx context.Context, bearer string, conv
 		return errores.DeTransporte("MarcarAtendida", err)
 	}
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return errores.DeStatus("MarcarAtendida", resp.StatusCode())
+		return deMensajeria("MarcarAtendida", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -349,7 +363,7 @@ func (a *MensajeriaHTTP) RegistrarReciboEntregado(ctx context.Context, bearer st
 		return errores.DeTransporte("RegistrarReciboEntregado", err)
 	}
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return errores.DeStatus("RegistrarReciboEntregado", resp.StatusCode())
+		return deMensajeria("RegistrarReciboEntregado", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
@@ -365,7 +379,7 @@ func (a *MensajeriaHTTP) RegistrarReciboLeido(ctx context.Context, bearer string
 		return errores.DeTransporte("RegistrarReciboLeido", err)
 	}
 	if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-		return errores.DeStatus("RegistrarReciboLeido", resp.StatusCode())
+		return deMensajeria("RegistrarReciboLeido", resp.StatusCode(), resp.Body)
 	}
 	return nil
 }
