@@ -569,6 +569,11 @@ type fakeOperacion struct {
 	incidencia    *opclient.Incidencia
 	estadia       *opclient.Estadia
 	paginaEstadia *opclient.PaginaEstadias
+
+	// Evidencia (E8-T17): respuestas de los tres métodos de adjuntos.
+	adjuntos    *opclient.PaginaAdjuntos
+	intencion   *opclient.IntencionSubidaAdjunto
+	descargaAdj *opclient.DescargaAdjunto
 }
 
 // flujo registra la llamada a un método del flujo interno.

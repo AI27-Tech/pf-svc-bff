@@ -29,6 +29,7 @@ const (
 	envIdentidadBase  = "IDENTIDAD_BASE_URL"
 	envOperacionBase  = "OPERACION_BASE_URL"
 	envMensajeriaBase = "MENSAJERIA_BASE_URL"
+	envReportesBase   = "REPORTES_BASE_URL"
 	envAudiencia      = "JWT_AUDIENCIA_ESPERADA"
 )
 
@@ -46,7 +47,7 @@ func main() {
 func run() error {
 	ctx := context.Background()
 
-	cfg, err := config.Load(envIdentidadBase, envOperacionBase, envMensajeriaBase, config.EnvJWKSURL)
+	cfg, err := config.Load(envIdentidadBase, envOperacionBase, envMensajeriaBase, envReportesBase, config.EnvJWKSURL)
 	if err != nil {
 		return err
 	}
@@ -77,6 +78,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	reportes, err := bffhttp.NewReportesHTTP(os.Getenv(envReportesBase), nil)
+	if err != nil {
+		return err
+	}
 
 	// Verificacion local de JWT contra el JWKS del IdP interno (ADR 26). La
 	// audiencia de dominio (Cliente|Interno) se lee de auth.Claims.Audiencia; el
@@ -91,6 +96,7 @@ func run() error {
 		Identidad:   identidad,
 		Operacion:   operacion,
 		Mensajeria:  mensajeria,
+		Reportes:    reportes,
 		Verificador: verificador,
 	})
 	if err != nil {

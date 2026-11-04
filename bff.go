@@ -58,6 +58,9 @@ type Deps struct {
 	// Catalogos es la arista a catalogos: el selector de clientes para crear un
 	// viaje por Operación (E8-T11); propaga el token del usuario.
 	Catalogos CatalogosPort
+	// Reportes es la arista a reportes: el dashboard de monitoreo (E8-T17). Los
+	// reportes salen sin recortar, con su marca de frescura (DEC-033).
+	Reportes ReportesPort
 
 	// Verificador verifica JWT localmente contra el JWKS del IdP interno
 	// (auth.NewVerifier). Nunca viaja a identidad para verificar (ADR 26).
@@ -94,6 +97,7 @@ func New(_ Pools, d Deps) (*Module, error) {
 		Operacion:  d.Operacion,
 		Mensajeria: d.Mensajeria,
 		Catalogos:  d.Catalogos,
+		Reportes:   d.Reportes,
 	})
 	m := &Module{deps: d, handlers: h}
 
@@ -195,6 +199,17 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/viajes/{id}/estadias", protegido(http.HandlerFunc(m.handlers.ListarEstadias)))
 	mux.Handle("POST /api/v1/viajes/{id}/estadias", protegido(http.HandlerFunc(m.handlers.AbrirEstadia)))
 	mux.Handle("PATCH /api/v1/viajes/{id}/estadias/{eid}", protegido(http.HandlerFunc(m.handlers.CerrarEstadia)))
+	// Dashboard de monitoreo (E8-T17): reenvío a reportes. Los handlers exigen un
+	// rol de monitoreo (monitorista, supervisor, coordinador, administrador); el
+	// resto recibe 403. El reporte sale sin recortar, con proyeccion_al y stale.
+	mux.Handle("GET /api/v1/reportes/viajes", protegido(http.HandlerFunc(m.handlers.ReporteViajes)))
+	mux.Handle("GET /api/v1/reportes/estados", protegido(http.HandlerFunc(m.handlers.ReporteEstados)))
+	// Evidencia del viaje (E8-T17): reenvío a operacion, mismos roles de
+	// monitoreo. Los bytes no pasan por bff: subida y descarga usan la URL de vida
+	// corta del almacenamiento de objetos.
+	mux.Handle("GET /api/v1/viajes/{id}/adjuntos", protegido(http.HandlerFunc(m.handlers.ListarAdjuntos)))
+	mux.Handle("POST /api/v1/viajes/{id}/adjuntos/intenciones-subida", protegido(http.HandlerFunc(m.handlers.CrearIntencionSubidaAdjunto)))
+	mux.Handle("GET /api/v1/viajes/{id}/adjuntos/{aid}/descarga", protegido(http.HandlerFunc(m.handlers.DescargarAdjunto)))
 	mux.Handle("GET /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ListarEmergenciasCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias", protegido(http.HandlerFunc(m.handlers.ActivarEmergenciaCliente)))
 	mux.Handle("POST /api/v1/viajes/{id}/emergencias/{eid}/notas", protegido(http.HandlerFunc(m.handlers.AgregarNotaEmergenciaCliente)))

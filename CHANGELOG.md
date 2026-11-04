@@ -1,5 +1,53 @@
 # CHANGELOG
 
+## 2026:11:03 — reporteViajes acepta en_curso (E8-T17, DT-10)
+
+**Para quién:** el panel interno, cuyo dashboard abre con «viajes en curso». Apilado sobre la rama de E8-T17 (el dashboard y la evidencia); sube el pin a `tracer.36`.
+
+**Resumen:** `GET /api/v1/reportes/viajes` acepta el parámetro `en_curso` y hace `desde`/`hasta` opcionales, reenviándolos a `reportes`. El `bff` NO valida la combinación (que sin `en_curso` el rango sea obligatorio): esa regla vive en `reportes`, única autoridad; el `bff` solo parsea formatos y reenvía. Un formato inválido (fecha que no es RFC 3339, `en_curso` no booleano) sí es 400 local, sin tocar el puerto. `reporteEstados` no cambia: sigue exigiendo el rango con `periodoDe`.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `pf-pkg-contracts` `tracer.35` → `tracer.36`. El salto rompió la firma: `ReporteViajesParams.Desde`/`.Hasta` pasan a `*MarcaTiempo` y se añade `EnCurso *bool`; se ajusta la construcción del param.
+- `internal/agregacion/monitoreo.go`: `ReporteViajes` usa `reporteViajesParamsDe` (desde/hasta opcionales + en_curso) en vez de `periodoDe`. Nuevos `reporteViajesParamsDe` y `fechaOpcionalRFC3339`.
+- Pruebas: `monitoreo_test.go` del handler (reenvío de `en_curso` sin rango; formatos inválidos → 400 sin tocar el puerto; se retira el test que exigía rango, ahora responsabilidad de `reportes`) y `adapters/http/monitoreo_test.go` (param con punteros).
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go build ./cmd/api`, `go test ./...` y `arch-test` (v0.1.1) en verde.
+
+## 2026:11:03 — Dashboard de monitoreo y evidencia del viaje por el bff (E8-T17)
+
+**Para quién:** el panel interno (E8-T17), que solo habla con el `bff`. Hasta ahora el tablero de monitoreo y la evidencia del viaje no tenían ruta en el `bff`; con esta ola el frontend puede subir su pin y construir contra rutas reales.
+
+**Resumen:** sube el pin de `pf-pkg-contracts` de `tracer.31` a `tracer.35` y monta las cinco operaciones nuevas de `bff.yaml`: `reporteViajes` (`GET /api/v1/reportes/viajes`) y `reporteEstados` (`GET /api/v1/reportes/estados`), reenvíos a `reportes`; `listarAdjuntos` (`GET /api/v1/viajes/{id}/adjuntos`), `crearIntencionSubidaAdjunto` (`POST .../adjuntos/intenciones-subida`, 201) y `descargarAdjunto` (`GET .../adjuntos/{aid}/descarga`), reenvíos a `operacion`. Los bytes no pasan por el `bff`: subida y descarga usan la URL de vida corta del almacenamiento de objetos, y `operacion` audita cada acceso.
+
+**Autorización:** a diferencia del flujo interno, que solo exige audiencia Interna, estas cinco exigen un rol de monitoreo: `monitorista`, `supervisor`, `coordinador` o `administrador` reciben el reenvío; `jefe_operativo`, `ejecutivo`, `reaccion` y `cliente` reciben 403 antes de tocar el puerto; sin claims, 401 (DEC-022 #9, DEC-060). El alcance por unidad (DEC-045) no se aplica en ningún servicio todavía (deuda DT-07): el límite efectivo hoy es el rol.
+
+**Frescura:** el reporte sale tal cual lo devuelve `reportes`, con `proyeccion_al` y `stale` sin recortar (DEC-033). Si `reportes` no manda `stale`, el campo no sale y el panel lo trata como frescura no informada.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` `tracer.31` → `tracer.35`. Sin renombres de enum (§8 de git-workflow): `go build` limpio tras el salto.
+- `internal/agregacion/ports.go`, `ports.go`: `ReportesPort` nuevo, `PresupuestoReportes`, y `OperacionPort` gana `ListarAdjuntos`, `CrearIntencionSubidaAdjunto` y `DescargarAdjunto`.
+- `adapters/http/reportes.go` (nuevo): adaptador HTTP de `reportes` con presupuesto y Bearer propagado. `adapters/http/operacion.go`: los tres métodos de adjuntos.
+- `internal/agregacion/monitoreo.go` (nuevo): guarda por rol `soloMonitoreo` y los cinco handlers. `desde`/`hasta` son obligatorios (RFC 3339) y su ausencia o mal formato es 400; el orden del rango lo valida `reportes`.
+- `bff.go`: `Deps.Reportes` y las cinco rutas.
+- `cmd/api/main.go`: `REPORTES_BASE_URL`, **obligatoria** en el arranque standalone.
+- Pruebas: `monitoreo_test.go` (tabla de los ocho roles por las cinco operaciones, 401 sin claims, frescura presente y ausente, periodo y Bearer reenviados, periodo inválido, 201 de la intención con el `nombre` reenviado, ids inválidos y propagación de 403/404), `adapters/http/monitoreo_test.go` (Bearer, ruta y query, 201 y traducción de status), y las cinco rutas en `bff_test.go`.
+
+**Atención:**
+- **`REPORTES_BASE_URL` es nueva y requerida en el standalone.** Quien arranque `cmd/api` sin ella falla al iniciar. Producción corre en `pf-svc-core` y no se ve afectada por esta variable.
+- **`pf-svc-core` no compila contra esta versión del `bff` hasta que cablee las aristas nuevas:** necesita un adaptador en proceso de `reportes` y los tres métodos de adjuntos en su gemelo de `OperacionPort`. Los de adjuntos dependen a su vez de que `pf-svc-operacion` los exponga en su `ConsultasAPI`, cosa que hoy no hace. `core` fija su propia versión del `bff`, así que no se rompe hasta que la suba.
+- `nombre` pasó a ser obligatorio en `IntencionSubidaAdjuntoEntrada` en `tracer.35` (ruptura declarada en contratos): el cuerpo se reenvía tal cual y `operacion` valida.
+
+**Fuera de este PR:** filtro «viajes en curso» del dashboard (DT-10), incidencias y alertas (DT-09), autor del adjunto (DT-11), paginación de adjuntos (DT-08).
+
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...`, `go build ./cmd/api`, `go test ./...` y `arch-test` (v0.1.1) en verde.
+
+**Archivos modificados:**
+- `go.mod`, `go.sum`, `bff.go`, `ports.go`, `cmd/api/main.go`
+- `internal/agregacion/ports.go`, `internal/agregacion/monitoreo.go`
+- `adapters/http/operacion.go`, `adapters/http/reportes.go`
+- `bff_test.go`, `internal/agregacion/handlers_test.go`, `internal/agregacion/monitoreo_test.go`
+- `adapters/http/passthrough_test.go`, `adapters/http/monitoreo_test.go`
+- `CHANGELOG.md`
 ## 2026:11:02 18:00 — Flujo interno del panel por el bff (bff como única puerta pública)
 
 **Para quién:** el portal interno, que podrá hacer el flujo operativo del viaje por el bff sin llamar las rutas nativas de `operacion`. El Lead decidió que el bff sea la única puerta pública; este es el primer grupo de lo que faltaba, y es requisito para cerrar después el mux de respaldo de core. Para quien mantiene el bff: diez reenvíos delgados a `operacion`, sin lógica de dominio.

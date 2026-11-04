@@ -309,3 +309,52 @@ func (a *OperacionHTTP) CerrarEstadia(ctx context.Context, id, eid opclient.Id) 
 	}
 	return resp.JSON200, nil
 }
+
+// ListarAdjuntos reenvia a operacion.listarAdjuntos (E6-HU-027): metadatos de la
+// evidencia del viaje, sin bytes. operacion responde 403 fuera de alcance antes
+// de listar nada.
+func (a *OperacionHTTP) ListarAdjuntos(ctx context.Context, id opclient.Id) (*opclient.PaginaAdjuntos, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarAdjuntosWithResponse(ctx, id, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarAdjuntos", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarAdjuntos", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// CrearIntencionSubidaAdjunto reenvia a operacion.crearIntencionSubidaAdjunto. Los
+// bytes no pasan por bff: el cliente sube a la URL de vida corta devuelta.
+func (a *OperacionHTTP) CrearIntencionSubidaAdjunto(ctx context.Context, id opclient.Id, body opclient.IntencionSubidaAdjuntoEntrada) (*opclient.IntencionSubidaAdjunto, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CrearIntencionSubidaAdjuntoWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("CrearIntencionSubidaAdjunto", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeStatus("CrearIntencionSubidaAdjunto", resp.StatusCode())
+	}
+	return resp.JSON201, nil
+}
+
+// DescargarAdjunto reenvia a operacion.descargarAdjunto: URL de descarga de vida
+// corta. operacion audita cada acceso (E1-T7) y rechaza un adjunto no `limpio`.
+func (a *OperacionHTTP) DescargarAdjunto(ctx context.Context, id, aid opclient.Id) (*opclient.DescargaAdjunto, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.DescargarAdjuntoWithResponse(ctx, id, aid, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("DescargarAdjunto", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("DescargarAdjunto", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}

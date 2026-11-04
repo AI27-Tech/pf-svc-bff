@@ -62,6 +62,12 @@ var operacionesFaseA = []rutaContrato{
 	{"listarEstadias", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias", true},
 	{"abrirEstadia", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias", true},
 	{"cerrarEstadia", http.MethodPatch, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/estadias/00000000-0000-0000-0000-000000000000", true},
+	// Dashboard de monitoreo y evidencia del viaje (E8-T17).
+	{"reporteViajes", http.MethodGet, "/api/v1/reportes/viajes", true},
+	{"reporteEstados", http.MethodGet, "/api/v1/reportes/estados", true},
+	{"listarAdjuntos", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/adjuntos", true},
+	{"crearIntencionSubidaAdjunto", http.MethodPost, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/adjuntos/intenciones-subida", true},
+	{"descargarAdjunto", http.MethodGet, "/api/v1/viajes/00000000-0000-0000-0000-000000000000/adjuntos/00000000-0000-0000-0000-000000000000/descarga", true},
 }
 
 // TestRutasMontadasContraContrato verifica que New().Routes monta exactamente

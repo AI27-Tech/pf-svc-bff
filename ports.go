@@ -29,6 +29,10 @@ type MensajeriaPort = agregacion.MensajeriaPort
 // viaje por Operación (E8-T11). Propaga el token del usuario.
 type CatalogosPort = agregacion.CatalogosPort
 
+// ReportesPort es la arista a reportes: el dashboard de monitoreo (E8-T17).
+// Devuelve los reportes sin recortar, con su marca de frescura (DEC-033).
+type ReportesPort = agregacion.ReportesPort
+
 // Presupuestos de latencia por dependencia (bff.md (i)): el agregador no degrada
 // una vista ajena, cada arista tiene su propio presupuesto y pool. Los VALORES
 // concretos no estan en las fuentes y NO se inventan: quedan como configuracion
@@ -48,4 +52,7 @@ const (
 	// PresupuestoCatalogos es el presupuesto corto hacia catalogos (selector de
 	// clientes, E8-T11). Valor pendiente de configuracion.
 	PresupuestoCatalogos = 2 * time.Second
+	// PresupuestoReportes es el presupuesto corto hacia reportes (dashboard,
+	// E8-T17). Valor pendiente de configuracion.
+	PresupuestoReportes = 2 * time.Second
 )
