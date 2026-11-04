@@ -34,7 +34,7 @@ func TestReportesViajesPropagaBearerPeriodoYFrescura(t *testing.T) {
 	desde := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
 	hasta := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
 	ctx := tokenctx.Con(context.Background(), "Bearer tok-rep")
-	rep, err := ad.ReporteViajes(ctx, repclient.ReporteViajesParams{Desde: desde, Hasta: hasta})
+	rep, err := ad.ReporteViajes(ctx, repclient.ReporteViajesParams{Desde: &desde, Hasta: &hasta})
 	if err != nil {
 		t.Fatalf("ReporteViajes: %v", err)
 	}

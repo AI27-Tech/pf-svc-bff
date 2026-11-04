@@ -58,18 +58,20 @@ type fakeReportes struct {
 	err     error
 
 	llamado string
-	desde   time.Time
-	hasta   time.Time
+	desde   *time.Time
+	hasta   *time.Time
+	enCurso *bool
 	bearer  string
 }
 
 func (f *fakeReportes) ReporteViajes(ctx context.Context, p repclient.ReporteViajesParams) (*repclient.ReporteViajes, error) {
-	f.llamado, f.desde, f.hasta, f.bearer = "ReporteViajes", p.Desde, p.Hasta, tokenctx.De(ctx)
+	f.llamado, f.desde, f.hasta, f.enCurso, f.bearer = "ReporteViajes", p.Desde, p.Hasta, p.EnCurso, tokenctx.De(ctx)
 	return f.viajes, f.err
 }
 
 func (f *fakeReportes) ReporteEstados(ctx context.Context, p repclient.ReporteEstadosParams) (*repclient.ReporteEstados, error) {
-	f.llamado, f.desde, f.hasta, f.bearer = "ReporteEstados", p.Desde, p.Hasta, tokenctx.De(ctx)
+	d, h := p.Desde, p.Hasta
+	f.llamado, f.desde, f.hasta, f.bearer = "ReporteEstados", &d, &h, tokenctx.De(ctx)
 	return f.estados, f.err
 }
 
@@ -281,10 +283,10 @@ func TestReportesReenvianPeriodoYBearer(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; cuerpo: %s", rec.Code, rec.Body.String())
 	}
-	if want := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC); !rep.desde.Equal(want) {
+	if want := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC); rep.desde == nil || !rep.desde.Equal(want) {
 		t.Errorf("desde = %v, se esperaba %v", rep.desde, want)
 	}
-	if want := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC); !rep.hasta.Equal(want) {
+	if want := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC); rep.hasta == nil || !rep.hasta.Equal(want) {
 		t.Errorf("hasta = %v, se esperaba %v", rep.hasta, want)
 	}
 	if rep.bearer != "Bearer tok-panel" {
@@ -292,16 +294,34 @@ func TestReportesReenvianPeriodoYBearer(t *testing.T) {
 	}
 }
 
-// TestReportesPeriodoInvalidoEs400: desde/hasta ausentes o mal formados son 400
-// y no llegan al puerto.
-func TestReportesPeriodoInvalidoEs400(t *testing.T) {
-	consultas := map[string]string{
-		"sin periodo": "",
-		"sin hasta":   "?desde=2026-11-01T00:00:00Z",
-		"desde malo":  "?desde=ayer&hasta=2026-11-08T00:00:00Z",
-		"hasta malo":  "?desde=2026-11-01T00:00:00Z&hasta=2026-11-08",
+// TestReportesReenviaEnCursoSinRango: con en_curso=true y sin fechas, el bff NO
+// exige el rango (eso lo valida reportes) y reenvía en_curso con desde/hasta nil.
+func TestReportesReenviaEnCursoSinRango(t *testing.T) {
+	op, rep := fakeMonitoreo()
+	rec := peticionMonitoreo(t, NewHandlers(Deps{Operacion: op, Reportes: rep}).ReporteViajes, http.MethodGet,
+		"/api/v1/reportes/viajes?en_curso=true", nil, claimsDeRol(roles.RolMonitorista))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
 	}
-	for nombre, q := range consultas {
+	if rep.enCurso == nil || !*rep.enCurso {
+		t.Errorf("en_curso reenviado = %v, se esperaba true", rep.enCurso)
+	}
+	if rep.desde != nil || rep.hasta != nil {
+		t.Errorf("desde/hasta = (%v, %v), se esperaban nil sin rango", rep.desde, rep.hasta)
+	}
+}
+
+// TestReportesFormatoInvalidoEs400: el bff rechaza una fecha o un en_curso mal
+// formados (400) sin tocar el puerto. La regla de "rango obligatorio sin
+// en_curso" NO la valida el bff: la valida reportes, así que una petición sin
+// parámetros se reenvía y reportes decide.
+func TestReportesFormatoInvalidoEs400(t *testing.T) {
+	malos := map[string]string{
+		"desde mal":    "?desde=ayer&hasta=2026-11-08T00:00:00Z",
+		"hasta mal":    "?desde=2026-11-01T00:00:00Z&hasta=2026-11-08",
+		"en_curso mal": "?en_curso=quizas",
+	}
+	for nombre, q := range malos {
 		t.Run(nombre, func(t *testing.T) {
 			op, rep := fakeMonitoreo()
 			rec := peticionMonitoreo(t, NewHandlers(Deps{Operacion: op, Reportes: rep}).ReporteViajes, http.MethodGet,
@@ -310,12 +330,13 @@ func TestReportesPeriodoInvalidoEs400(t *testing.T) {
 				t.Fatalf("status = %d, se esperaba 400; cuerpo: %s", rec.Code, rec.Body.String())
 			}
 			if rep.llamado != "" {
-				t.Errorf("no debió llamar a reportes con un periodo inválido")
+				t.Errorf("no debió reenviar con un parámetro mal formado")
 			}
 		})
 	}
 }
 
+// TestReportesPeriodoInvalidoEs400: desde/hasta ausentes o mal formados son 400
 // TestIntencionSubidaReenviaCuerpoYResponde201: el cuerpo (con nombre) llega a
 // operacion y la respuesta 201 sale intacta, con la URL de vida corta.
 func TestIntencionSubidaReenviaCuerpoYResponde201(t *testing.T) {

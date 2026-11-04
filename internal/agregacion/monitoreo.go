@@ -2,6 +2,7 @@ package agregacion
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
@@ -74,24 +75,60 @@ func periodoDe(r *http.Request) (desde, hasta time.Time, err error) {
 }
 
 // ReporteViajes delega en reportes.reporteViajes y devuelve el reporte tal cual,
-// con proyeccion_al y stale sin recortar (DEC-033). Ruta protegida, solo
-// monitoreo.
+// con proyeccion_al y stale sin recortar (DEC-033). Acepta en_curso y hace
+// desde/hasta opcionales; la regla (sin en_curso, el rango es obligatorio) la
+// valida reportes, el bff solo reenvia. Ruta protegida, solo monitoreo.
 func (h *Handlers) ReporteViajes(w http.ResponseWriter, r *http.Request) {
 	if !h.soloMonitoreo(w, r, "reporteViajes") {
 		return
 	}
-	desde, hasta, err := periodoDe(r)
+	params, err := reporteViajesParamsDe(r)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
 	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
-	rep, err := h.deps.Reportes.ReporteViajes(ctx, repclient.ReporteViajesParams{Desde: desde, Hasta: hasta})
+	rep, err := h.deps.Reportes.ReporteViajes(ctx, params)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
 	escribirJSON(w, http.StatusOK, rep)
+}
+
+// reporteViajesParamsDe lee desde, hasta (RFC 3339) y en_curso. Los tres son
+// opcionales aqui: que falte el rango sin en_curso lo valida reportes. Un formato
+// invalido es 400.
+func reporteViajesParamsDe(r *http.Request) (repclient.ReporteViajesParams, error) {
+	var p repclient.ReporteViajesParams
+	q := r.URL.Query()
+	var err error
+	if p.Desde, err = fechaOpcionalRFC3339(q.Get("desde"), "desde"); err != nil {
+		return p, err
+	}
+	if p.Hasta, err = fechaOpcionalRFC3339(q.Get("hasta"), "hasta"); err != nil {
+		return p, err
+	}
+	if v := q.Get("en_curso"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return p, platformerrors.NewValidacion("bff: en_curso invalido (se espera true o false)")
+		}
+		p.EnCurso = &b
+	}
+	return p, nil
+}
+
+// fechaOpcionalRFC3339 parsea una fecha RFC 3339; vacio es "no enviada" (nil).
+func fechaOpcionalRFC3339(v, nombre string) (*time.Time, error) {
+	if v == "" {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return nil, platformerrors.NewValidacion("bff: %s invalido (se espera RFC 3339)", nombre)
+	}
+	return &t, nil
 }
 
 // ReporteEstados delega en reportes.reporteEstados, igual que ReporteViajes.
