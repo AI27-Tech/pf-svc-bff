@@ -1,5 +1,18 @@
 # CHANGELOG
 
+## 2026-11-04 16:35 — Los 409 de mensajeria conservan su código por HTTP
+
+**Para quién:** los frontends, cuando el `bff` corre separado de `mensajeria` (carril HTTP, sin `core`).
+
+**Resumen:** el adaptador HTTP de `mensajeria` traducía todo error con `errores.DeStatus`, que pierde el código de máquina del cuerpo, así que un 409 llegaba como `"conflicto"`. Ahora, igual que el adaptador de `operacion`, conserva el código del cuerpo `Error` (`emergencia_cerrada`, `conflicto_version_reclamo`, `conversacion_solo_lectura`, `stream_resync_required`, `transicion_invalida`). Va de la mano de `pf-svc-mensajeria` #57, que es quien empieza a emitir esos códigos.
+
+**Cambios:**
+- `adapters/http/mensajeria.go`: `deMensajeria` lee el `codigo` del cuerpo en un 409 y llama a `errores.DeRespuesta`. Lo usan los 25 reenvíos a `mensajeria` (`mensajeria.go` y la parte de `mensajeria` de `emergencias_por_id.go`). Un 409 sin código deja el conflicto genérico; los demás status no cambian.
+- `adapters/http/mensajeria_test.go`: `TestMensajeriaConservaCodigoDel409` (409 con código, 409 sin código, 403).
+
+**Archivos modificados:**
+- `adapters/http/mensajeria.go`, `adapters/http/emergencias_por_id.go`, `adapters/http/mensajeria_test.go`, `CHANGELOG.md`
+
 ## 2026-11-04 15:12 — Emergencias del monitoreo y bandeja de Reacción (E8-T18, `tracer.37`)
 
 **Para quién:** el panel interno. El monitoreo ya puede listar, activar y anotar casos desde el viaje, y Reacción tiene su bandeja y el detalle del caso con el viaje y la escolta. También el portal cliente: activar sobre un viaje terminal ahora responde 409 y la reentrega 200.
