@@ -1,5 +1,43 @@
 # CHANGELOG
 
+## 2026-11-04 18:30 — Flujo interno del panel, grupo 2: roster, fecha/hora, incidencias, ficha y GPS
+
+**Para quién:** el panel interno. El jefe operativo ya puede leer el roster y completar la fecha/hora del servicio antes de aprobar; el monitoreo, leer y guardar la ficha técnica, elegir GPS del catálogo y ver el histórico de incidencias. Todo por el `bff`, que es la única puerta pública.
+
+**Resumen:** sirve las 6 operaciones de `bff.yaml` (`tracer.37`) que estaban en el contrato sin código. Mismo patrón que las 10 del PR #59: audiencia Interna antes de reenviar (un Cliente recibe 403), Bearer propagado, vista sin recortar y errores por `escribirError`, así que los 409 conservan su `codigo`.
+
+**Comportamiento:**
+- `GET /api/v1/unidades` (`listarUnidades`) → `operacion.listarUnidades`. Roles: los decide `operacion` (jefe_operativo, administrador).
+- `PATCH /api/v1/viajes/{id}/fecha-hora` (`completarFechaHora`) → `operacion.completarFechaHora` y recompone `ViajeDetalle` con `obtenerViaje`, como `fijarEta`. Un viaje terminal responde 409 `viaje_en_estado_terminal`.
+- `GET /api/v1/viajes/{id}/incidencias` (`listarIncidencias`) → histórico `en_atencion` y `resuelta`, con `tipo_interno` crudo.
+- `GET`/`PATCH /api/v1/viajes/{id}/ficha` (`obtenerFicha`/`guardarFicha`). El `PATCH` replica el handler de `operacion` v0.1.17: campo desconocido es 400, y `"tracto": null` viaja como `&Tracto{}` (borrar) mientras que la propiedad ausente queda `nil` (no tocar).
+- `GET /api/v1/gps` (`listarGps`) → `catalogos.listarGps`, solo activos.
+
+**Cambios:**
+- `internal/agregacion/ports.go`: 5 métodos en `OperacionPort` y `ListarGps` en `CatalogosPort`. `pf-svc-core` debe implementarlos en sus adaptadores en proceso.
+- `internal/agregacion/flujo_interno.go`: los 6 handlers.
+- `adapters/http/operacion.go`, `adapters/http/catalogos.go`: los reenvíos HTTP. `GuardarFicha` arma el cuerpo a mano (`cuerpoFicha`): el tipo generado serializa `Tracto` nil como `"tracto": null`, que `operacion` leería como borrar.
+- `bff.go`: 6 rutas. `bff_test.go`: las 6 en la prueba ruta↔operationId.
+- Pruebas: la tabla del flujo interno suma 5 casos (reenvío con Interna y 403 con Cliente); `flujo_interno_g2_test.go` cubre tracto null/ausente, campo desconocido, 409 de fecha/hora y `listarGps`; `passthrough_test.go` cubre el cuerpo que sale hacia `operacion`.
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go build ./...`, `go test -race ./...`, `arch-test` v0.1.1 en verde. Mutación: sin la detección del null, o con `json.Marshal` del tipo generado en el adaptador, las pruebas de tracto fallan.
+
+**Archivos modificados:**
+- `bff.go`, `bff_test.go`, `internal/agregacion/ports.go`, `internal/agregacion/flujo_interno.go`, `internal/agregacion/flujo_interno_test.go`, `internal/agregacion/flujo_interno_g2_test.go` (nuevo), `internal/agregacion/handlers_test.go`, `internal/agregacion/catalogos_test.go`, `adapters/http/operacion.go`, `adapters/http/catalogos.go`, `adapters/http/passthrough_test.go`, `CHANGELOG.md`
+
+## 2026-11-04 16:40 — platform-go v0.1.9 y el cuerpo de error ya no filtra la causa interna
+
+**Para quién:** los frontends y quien llama al `bff` con un token. Cambian dos cosas que observan:
+- Un token verificado que no trae claim `audiencia` ni `rol` ahora recibe 401 `no_autorizado`; antes se tomaba como audiencia Interno, que no se acota por tenant (DEC-129). Con `audiencia` explícita, rol `cliente` o un rol interno, nada cambia.
+- El `mensaje` de un error ya no trae la causa envuelta. `escribirError` escribía `err.Error()`, y `PlatformError.Error()` concatena la causa: texto de Postgres o el cuerpo de un aguas-abajo llegaban al cliente.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `pf-pkg-platform-go` v0.1.8 → v0.1.9 (PR #41 de platform-go).
+- `internal/agregacion/handlers.go`: `escribirError` emite `mensajePublico(err)`, el `Message` del `PlatformError` más externo, y `"error interno"` para un error fuera de la taxonomía. Mismo criterio que `boundary.WriteError` de `mensajeria`. `codigo` sigue saliendo de `platformerrors.CodigoDe`, así que los 409 conservan su código de máquina (#69). Es el único escritor de errores del bff: todos los handlers de `agregacion` pasan por él.
+- `internal/agregacion/escribir_error_test.go` (nuevo): Roto con causa envuelta, Degradado envuelto con `%w`, error ajeno y 409 con código de máquina; el cuerpo se compara exacto. Las dos primeras fallan sin el arreglo (se ve el texto de Postgres en el cuerpo).
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go build ./...` (incluye `./cmd/...`), `go test -race ./...`, `arch-test` (v0.1.1 del CI y v0.1.9) en verde. Ninguna prueba arma un token sin rol contra el `auth.Verifier` real, así que no se tocó ningún fixture.
+
 ## 2026-11-04 16:35 — Los 409 de mensajeria conservan su código por HTTP
 
 **Para quién:** los frontends, cuando el `bff` corre separado de `mensajeria` (carril HTTP, sin `core`).
