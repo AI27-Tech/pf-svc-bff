@@ -1,9 +1,13 @@
 package agregacion
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
+	catclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/catalogos"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
@@ -248,4 +252,147 @@ func (h *Handlers) CerrarEstadia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	escribirJSON(w, http.StatusOK, est)
+}
+
+// --- Flujo interno, grupo 2 (E8-T9/T10/T12/T13) ------------------------------
+//
+// Roster, fecha/hora del servicio, histórico de incidencias, ficha técnica y
+// catálogo de GPS. Misma mecánica: audiencia Interna antes de reenviar, vista sin
+// recortar, errores por escribirError (409 con codigo incluido).
+
+// ListarUnidades delega en operacion.listarUnidades: UNA página del roster, con
+// el cursor opcional del query. Solo jefe_operativo y administrador; el resto
+// recibe el 403 de operacion.
+func (h *Handlers) ListarUnidades(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "listarUnidades") {
+		return
+	}
+	var params opclient.ListarUnidadesParams
+	if c := r.URL.Query().Get("cursor"); c != "" {
+		params.Cursor = &c
+	}
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	pagina, err := h.deps.Operacion.ListarUnidades(ctx, params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, pagina)
+}
+
+// CompletarFechaHora delega en operacion.completarFechaHora y, como fijarEta,
+// recompone el detalle interno con ObtenerViaje (el contrato devuelve
+// ViajeDetalle). Un viaje terminal es 409 viaje_en_estado_terminal.
+func (h *Handlers) CompletarFechaHora(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.viajeInterno(w, r, "completarFechaHora")
+	if !ok {
+		return
+	}
+	var cuerpo bffclient.FechaHoraEntrada
+	if err := decodificar(r, &cuerpo); err != nil {
+		escribirError(w, err)
+		return
+	}
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	if _, err := h.deps.Operacion.CompletarFechaHora(ctx, id, opclient.FechaHoraEntrada(cuerpo)); err != nil {
+		escribirError(w, err)
+		return
+	}
+	detalle, err := h.deps.Operacion.ObtenerViaje(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, aViajeDetalle(*detalle))
+}
+
+// ListarIncidencias delega en operacion.listarIncidencias: UNA página del
+// histórico (en_atencion y resuelta), con tipo_interno crudo.
+func (h *Handlers) ListarIncidencias(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.viajeInterno(w, r, "listarIncidencias")
+	if !ok {
+		return
+	}
+	var params opclient.ListarIncidenciasParams
+	if c := r.URL.Query().Get("cursor"); c != "" {
+		params.Cursor = &c
+	}
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	pagina, err := h.deps.Operacion.ListarIncidencias(ctx, id, params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, pagina)
+}
+
+// ObtenerFicha delega en operacion.obtenerFicha.
+func (h *Handlers) ObtenerFicha(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.viajeInterno(w, r, "obtenerFicha")
+	if !ok {
+		return
+	}
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	ficha, err := h.deps.Operacion.ObtenerFicha(ctx, id)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, ficha)
+}
+
+// GuardarFicha delega en operacion.guardarFicha. Replica el handler de
+// operacion: un campo desconocido es 400 (additionalProperties: false) y, como el
+// tipo generado no distingue `"tracto": null` de la propiedad ausente, el null se
+// detecta en el JSON crudo y viaja como &Tracto{} (borrar); ausente queda nil (no
+// tocar). Se decodifica directo al tipo de operacion: mismo schema, y así no hay
+// que traducir las colecciones anidadas.
+func (h *Handlers) GuardarFicha(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.viajeInterno(w, r, "guardarFicha")
+	if !ok {
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: guardarFicha: cuerpo de la peticion invalido: %v", err))
+		return
+	}
+	var cuerpo opclient.FichaTecnicaEntrada
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cuerpo); err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: guardarFicha: cuerpo de la peticion invalido: %v", err))
+		return
+	}
+	if cuerpo.Tracto == nil {
+		var props map[string]json.RawMessage
+		if json.Unmarshal(raw, &props) == nil && string(bytes.TrimSpace(props["tracto"])) == "null" {
+			cuerpo.Tracto = &opclient.Tracto{}
+		}
+	}
+	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	ficha, err := h.deps.Operacion.GuardarFicha(ctx, id, cuerpo)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, ficha)
+}
+
+// ListarGps delega en catalogos.listarGps: UNA página de dispositivos activos
+// para el selector de la ficha, con el cursor opcional del query.
+func (h *Handlers) ListarGps(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "listarGps") {
+		return
+	}
+	var params catclient.ListarGpsParams
+	if c := r.URL.Query().Get("cursor"); c != "" {
+		params.Cursor = &c
+	}
+	pagina, err := h.deps.Catalogos.ListarGps(r.Context(), r.Header.Get("Authorization"), params)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	escribirJSON(w, http.StatusOK, pagina)
 }

@@ -11,7 +11,7 @@ go 1.27
 // modulos.
 require (
 	github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go v0.1.0-tracer.37
-	github.com/AI27-Tech/pf-pkg-platform-go v0.1.8
+	github.com/AI27-Tech/pf-pkg-platform-go v0.1.9
 	github.com/google/uuid v1.6.0
 	github.com/oapi-codegen/runtime v1.7.0
 )

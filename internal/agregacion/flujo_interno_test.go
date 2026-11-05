@@ -207,6 +207,84 @@ func casosFlujo() []casoFlujo {
 				}
 			},
 		},
+		// Flujo interno, grupo 2.
+		{
+			op: "listarUnidades", handler: func(h *Handlers) http.HandlerFunc { return h.ListarUnidades },
+			metodo: http.MethodGet, url: "/api/v1/unidades?cursor=c-4",
+			metodoPuerto: "ListarUnidades", status: http.StatusOK,
+			verifica: func(t *testing.T, rec *httptest.ResponseRecorder, f *fakeOperacion) {
+				if got := f.flujoRecibio.(opclient.ListarUnidadesParams); got.Cursor == nil || *got.Cursor != "c-4" {
+					t.Errorf("cursor reenviado = %v, se esperaba c-4", got.Cursor)
+				}
+				if f.bearerRecibido != "Bearer tok-panel" {
+					t.Errorf("bearer = %q", f.bearerRecibido)
+				}
+				var got bffclient.PaginaUnidades
+				decodificarCuerpo(t, rec, &got)
+				if len(got.Items) != 1 || got.Items[0].Id != flujoSub || len(got.Items[0].CustodiosIds) != 1 {
+					t.Errorf("página = %+v, se esperaba la unidad del fake", got)
+				}
+			},
+		},
+		{
+			op: "completarFechaHora", handler: func(h *Handlers) http.HandlerFunc { return h.CompletarFechaHora },
+			metodo: http.MethodPatch, url: base + "/fecha-hora", cuerpo: bffclient.FechaHoraEntrada{FechaHoraServicio: eta},
+			metodoPuerto: "CompletarFechaHora", status: http.StatusOK,
+			verifica: func(t *testing.T, rec *httptest.ResponseRecorder, f *fakeOperacion) {
+				if got := f.flujoRecibio.(opclient.FechaHoraEntrada); !got.FechaHoraServicio.Equal(eta) {
+					t.Errorf("fecha reenviada = %v, se esperaba %v", got.FechaHoraServicio, eta)
+				}
+				var got bffclient.ViajeDetalle
+				decodificarCuerpo(t, rec, &got)
+				if got.Viaje.Id != flujoViaje || f.obtenerRecibio != flujoViaje {
+					t.Errorf("no recompuso el detalle: id %v, ObtenerViaje(%v)", got.Viaje.Id, f.obtenerRecibio)
+				}
+			},
+		},
+		{
+			op: "listarIncidencias", handler: func(h *Handlers) http.HandlerFunc { return h.ListarIncidencias },
+			metodo: http.MethodGet, url: base + "/incidencias?cursor=c-5",
+			metodoPuerto: "ListarIncidencias", status: http.StatusOK,
+			verifica: func(t *testing.T, rec *httptest.ResponseRecorder, f *fakeOperacion) {
+				if got := f.flujoRecibio.(opclient.ListarIncidenciasParams); got.Cursor == nil || *got.Cursor != "c-5" {
+					t.Errorf("cursor reenviado = %v, se esperaba c-5", got.Cursor)
+				}
+				var got bffclient.PaginaIncidencias
+				decodificarCuerpo(t, rec, &got)
+				if len(got.Items) != 1 || got.Items[0].TipoInterno != "falla_mecanica" || got.Items[0].Estado != "resuelta" {
+					t.Errorf("página = %+v, se esperaba la incidencia resuelta con tipo_interno crudo", got)
+				}
+			},
+		},
+		{
+			op: "obtenerFicha", handler: func(h *Handlers) http.HandlerFunc { return h.ObtenerFicha },
+			metodo: http.MethodGet, url: base + "/ficha",
+			metodoPuerto: "ObtenerFicha", status: http.StatusOK,
+			verifica: func(t *testing.T, rec *httptest.ResponseRecorder, _ *fakeOperacion) {
+				var got bffclient.FichaTecnica
+				decodificarCuerpo(t, rec, &got)
+				if got.ViajeId != flujoViaje || got.Tracto == nil || got.Tracto.Placas == nil || *got.Tracto.Placas != "ABC-123" {
+					t.Errorf("ficha = %+v, se esperaba la del fake con tracto ABC-123", got)
+				}
+			},
+		},
+		{
+			op: "guardarFicha", handler: func(h *Handlers) http.HandlerFunc { return h.GuardarFicha },
+			metodo: http.MethodPatch, url: base + "/ficha",
+			cuerpo:       json.RawMessage(`{"tracto":{"placas":"ABC-123"},"gps_ids":["` + flujoSub.String() + `"]}`),
+			metodoPuerto: "GuardarFicha", status: http.StatusOK,
+			verifica: func(t *testing.T, rec *httptest.ResponseRecorder, f *fakeOperacion) {
+				got := f.flujoRecibio.(opclient.FichaTecnicaEntrada)
+				if got.Tracto == nil || got.Tracto.Placas == nil || *got.Tracto.Placas != "ABC-123" || got.GpsIds == nil || (*got.GpsIds)[0] != flujoSub {
+					t.Errorf("entrada reenviada = %+v", got)
+				}
+				var ficha bffclient.FichaTecnica
+				decodificarCuerpo(t, rec, &ficha)
+				if ficha.ViajeId != flujoViaje {
+					t.Errorf("ficha = %+v", ficha)
+				}
+			},
+		},
 	}
 }
 
@@ -227,6 +305,11 @@ func fakeFlujo() *fakeOperacion {
 		incidencia:      &opclient.Incidencia{Id: flujoSub, ViajeId: flujoViaje, TipoInterno: "falla_mecanica", Estado: "en_atencion", AbiertaEn: ahora},
 		estadia:         &opclient.Estadia{Id: flujoSub, ViajeId: flujoViaje, Motivo: opclient.Combustible, EjeAutorizacion: opclient.Autorizada, Inicio: ahora, Cierre: &ahora},
 		paginaEstadia:   &opclient.PaginaEstadias{Items: []opclient.Estadia{{Id: flujoSub, ViajeId: flujoViaje, Motivo: opclient.Combustible, EjeAutorizacion: opclient.Autorizada, Inicio: ahora}}},
+		unidades:        &opclient.PaginaUnidades{Items: []opclient.Unidad{{Id: flujoSub, VehiculoId: uuid.New(), CustodiosIds: []opclient.Id{uuid.New()}, Activa: true}}},
+		paginaIncidencias: &opclient.PaginaIncidencias{Items: []opclient.Incidencia{{
+			Id: flujoSub, ViajeId: flujoViaje, TipoInterno: "falla_mecanica", Estado: opclient.IncidenciaEstadoResuelta, AbiertaEn: ahora, ResueltaEn: &ahora,
+		}}},
+		ficha: &opclient.FichaTecnica{ViajeId: flujoViaje, Tracto: &opclient.Tracto{Placas: ptr("ABC-123")}},
 	}
 }
 

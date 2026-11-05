@@ -3,6 +3,7 @@ package agregacion
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -1453,10 +1454,25 @@ func escribirJSON(w http.ResponseWriter, status int, v any) {
 // taxonomia de la plataforma (Ola C): CodigoDe emite el codigo del error si lo
 // trae, si no el generico de la categoria. No hay caso especial que reconocer
 // antes del mapeo general.
+//
+// El cuerpo lleva solo el mensaje público del PlatformError, nunca la causa
+// envuelta (Err.Error() la concatena): esa causa puede traer texto de Postgres
+// o el cuerpo de un aguas-abajo. Mismo criterio que boundary.WriteError de
+// mensajeria.
 func escribirError(w http.ResponseWriter, err error) {
 	cat := platformerrors.AsCategory(err)
 	escribirJSON(w, cat.HTTPStatus(), bffclient.Error{
 		Codigo:  platformerrors.CodigoDe(err),
-		Mensaje: err.Error(),
+		Mensaje: mensajePublico(err),
 	})
+}
+
+// mensajePublico es el Message del PlatformError más externo; un error fuera de
+// la taxonomía no tiene mensaje público.
+func mensajePublico(err error) string {
+	var pe *platformerrors.PlatformError
+	if errors.As(err, &pe) {
+		return pe.Message
+	}
+	return "error interno"
 }
