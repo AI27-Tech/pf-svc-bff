@@ -195,14 +195,14 @@ func TestCrearViajeReenviaEntradaTraducidaADevuelveViaje(t *testing.T) {
 
 // --- ListarViajes ---
 
-func TestListarViajesReenviaCursorYDevuelvePagina(t *testing.T) {
+func TestListarViajesReenviaCursorEstadoYDevuelvePagina(t *testing.T) {
 	pagina := &opclient.PaginaViajes{
 		Items: []opclient.Viaje{{Id: uuid.New(), Origen: "A"}},
 	}
 	fakeOp := &fakeOperacion{pagina: pagina}
 	h := NewHandlers(Deps{Operacion: fakeOp})
 
-	rec := hacerPeticion(t, h.ListarViajes, http.MethodGet, "/api/v1/viajes?cursor=c-42", nil,
+	rec := hacerPeticion(t, h.ListarViajes, http.MethodGet, "/api/v1/viajes?cursor=c-42&estado=CANCELADO", nil,
 		&auth.Claims{SesionID: "s", Subject: "u"})
 
 	if rec.Code != http.StatusOK {
@@ -215,6 +215,9 @@ func TestListarViajesReenviaCursorYDevuelvePagina(t *testing.T) {
 	}
 	if fakeOp.listarRecibio.Cursor == nil || *fakeOp.listarRecibio.Cursor != "c-42" {
 		t.Errorf("cursor reenviado = %v, se esperaba c-42", fakeOp.listarRecibio.Cursor)
+	}
+	if fakeOp.listarRecibio.Estado == nil || *fakeOp.listarRecibio.Estado != "CANCELADO" {
+		t.Errorf("estado reenviado = %v, se esperaba CANCELADO", fakeOp.listarRecibio.Estado)
 	}
 }
 
