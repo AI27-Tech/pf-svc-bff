@@ -1,5 +1,15 @@
 # CHANGELOG
 
+## 2026-11-05 16:00 — `listarViajes` reenvía el filtro `estado`
+
+**Para quién:** los dos portales. El filtro por estado de "Mis viajes" (portal del cliente) y de la bandeja del panel mandaba `?estado=`, pero el handler solo reenviaba el `cursor` a `operacion`, así que la lista salía completa con cualquier filtro. Ahora `estado` se reenvía y `operacion` filtra (ya lo soportaba). Sin el parámetro, la lista es la de siempre.
+
+**Cambios:**
+- `internal/agregacion/handlers.go`: `ListarViajes` reenvía `estado` en `ListarViajesParams`.
+- `internal/agregacion/handlers_test.go`: la prueba del handler también afirma el `estado` reenviado; falla sin el cambio.
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go test -count=1 ./...` y `arch-test` en verde.
+
 ## 2026-11-04 18:30 — Flujo interno del panel, grupo 2: roster, fecha/hora, incidencias, ficha y GPS
 
 **Para quién:** el panel interno. El jefe operativo ya puede leer el roster y completar la fecha/hora del servicio antes de aprobar; el monitoreo, leer y guardar la ficha técnica, elegir GPS del catálogo y ver el histórico de incidencias. Todo por el `bff`, que es la única puerta pública.

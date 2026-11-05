@@ -125,12 +125,17 @@ func (h *Handlers) CrearViaje(w http.ResponseWriter, r *http.Request) {
 // token (P9, P10); el alcance por unidad/cliente se resuelve en servidor, no
 // viaja en el token (DEC-053). Ruta protegida.
 func (h *Handlers) ListarViajes(w http.ResponseWriter, r *http.Request) {
-	// En fase (a) solo se reenvia el cursor; los filtros de alcance los aplica
-	// operacion a partir del contexto autenticado que propaga el adaptador.
+	// En fase (a) se reenvian el cursor y el filtro `estado`; los filtros de
+	// alcance los aplica operacion a partir del contexto autenticado que propaga
+	// el adaptador.
 	var params opclient.ListarViajesParams
 	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
 		c := opclient.Cursor(cursor)
 		params.Cursor = &c
+	}
+	if estado := r.URL.Query().Get("estado"); estado != "" {
+		e := opclient.EstadoViaje(estado)
+		params.Estado = &e
 	}
 	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
 	pagina, err := h.deps.Operacion.ListarViajes(ctx, params)
