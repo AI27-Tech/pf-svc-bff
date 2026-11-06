@@ -1,5 +1,16 @@
 # CHANGELOG
 
+## 2026-11-06 14:20 — `listarUnidades` trae el vehículo y los custodios legibles (tracer.38, DT-19)
+
+**Para quién:** el panel interno. En "Asignar escolta", el alta de viaje y la ficha técnica, cada unidad del roster se mostraba como UUID de vehículo y de custodios. Ahora cada unidad de `GET /api/v1/unidades` trae `vehiculo` (`economico`, `placas`) y `custodios` (`id`, `nombre`) leídos de `catalogos`, como ya lo hace la escolta del detalle de Reacción (DEC-121). Si el vehículo o un custodio ya no está en el catálogo, se omite y el panel muestra el id. Otro error de `catalogos` hace fallar la lista.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` `tracer.37` → `tracer.38`.
+- `internal/agregacion/flujo_interno.go`: `ListarUnidades` arma `bffclient.PaginaUnidades` con `unidadLegible`. Lleva un `shortcut` por la lectura por vehículo y por custodio (N+1, en proceso dentro de core).
+- Pruebas: `TestListarUnidadesLegibles` (nombres, lo borrado del catálogo se omite, `catalogos` caído → 503). La prueba de tabla del flujo interno recibe un `fakeCatalogos` vacío.
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go test -count=1 ./...` y `arch-test` en verde. En core con esta rama, recorrido en navegador con Keycloak real 29/29: el modal muestra "P-101 · ABC-1234 / Ana López, Juan Pérez".
+
 ## 2026-11-05 16:00 — `listarViajes` reenvía el filtro `estado`
 
 **Para quién:** los dos portales. El filtro por estado de "Mis viajes" (portal del cliente) y de la bandeja del panel mandaba `?estado=`, pero el handler solo reenviaba el `cursor` a `operacion`, así que la lista salía completa con cualquier filtro. Ahora `estado` se reenvía y `operacion` filtra (ya lo soportaba). Sin el parámetro, la lista es la de siempre.

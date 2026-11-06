@@ -156,3 +156,50 @@ func TestListarGps(t *testing.T) {
 		}
 	})
 }
+
+// TestListarUnidadesLegibles verifica DT-19 (tracer.38): cada unidad sale con el
+// económico, las placas y el nombre de sus custodios desde catalogos; lo que ya
+// no está en el catálogo se omite, y otro error de catalogos hace fallar la lista.
+func TestListarUnidadesLegibles(t *testing.T) {
+	veh, cus1, cus2, borrado := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	eco, placas := "P-101", "ABC-1234"
+	tipo := opclient.UnidadTipo("patrulla")
+	f := &fakeOperacion{unidades: &opclient.PaginaUnidades{Items: []opclient.Unidad{
+		{Id: uuid.New(), VehiculoId: veh, CustodiosIds: []opclient.Id{cus1, borrado, cus2}, Tipo: &tipo, Activa: true},
+		{Id: uuid.New(), VehiculoId: borrado, CustodiosIds: []opclient.Id{cus1}, Activa: true},
+	}}}
+	cat := &fakeCatalogos{
+		vehiculos: map[catclient.Id]*catclient.Vehiculo{veh: {Economico: &eco, Placas: &placas}},
+		custodios: map[catclient.Id]*catclient.Custodio{cus1: {Nombre: "Juan Pérez"}, cus2: {Nombre: "Ana López"}},
+	}
+
+	rec := peticionFlujo(t, NewHandlers(Deps{Operacion: f, Catalogos: cat}).ListarUnidades, http.MethodGet,
+		"/api/v1/unidades", "", nil, auth.AudienciaInterno)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; cuerpo: %s", rec.Code, rec.Body)
+	}
+	var got bffclient.PaginaUnidades
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decodificar: %v", err)
+	}
+	u0, u1 := got.Items[0], got.Items[1]
+	if u0.Vehiculo == nil || *u0.Vehiculo.Economico != "P-101" || *u0.Vehiculo.Placas != "ABC-1234" {
+		t.Errorf("vehículo de la unidad 0 = %+v, se esperaba P-101 / ABC-1234", u0.Vehiculo)
+	}
+	if u0.Custodios == nil || len(*u0.Custodios) != 2 || (*u0.Custodios)[0].Nombre != "Juan Pérez" || (*u0.Custodios)[1].Nombre != "Ana López" {
+		t.Errorf("custodios de la unidad 0 = %+v, se esperaba [Juan Pérez, Ana López] sin el borrado", u0.Custodios)
+	}
+	if u0.Tipo == nil || *u0.Tipo != "patrulla" || len(u0.CustodiosIds) != 3 {
+		t.Errorf("la unidad 0 perdió tipo o ids: %+v", u0)
+	}
+	if u1.Vehiculo != nil {
+		t.Errorf("vehículo borrado del catálogo = %+v, se esperaba ausente", u1.Vehiculo)
+	}
+
+	cat.errVehiculo = platformerrors.NewDegradado("catalogos caído")
+	rec = peticionFlujo(t, NewHandlers(Deps{Operacion: f, Catalogos: cat}).ListarUnidades, http.MethodGet,
+		"/api/v1/unidades", "", nil, auth.AudienciaInterno)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("con catalogos caído: status = %d, se esperaba 503", rec.Code)
+	}
+}

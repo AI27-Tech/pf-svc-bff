@@ -2,6 +2,7 @@ package agregacion
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -262,7 +263,8 @@ func (h *Handlers) CerrarEstadia(w http.ResponseWriter, r *http.Request) {
 
 // ListarUnidades delega en operacion.listarUnidades: UNA página del roster, con
 // el cursor opcional del query. Solo jefe_operativo y administrador; el resto
-// recibe el 403 de operacion.
+// recibe el 403 de operacion. Agrega el vehículo y los custodios legibles desde
+// catalogos (tracer.38, DT-19) para que el panel no muestre UUID.
 func (h *Handlers) ListarUnidades(w http.ResponseWriter, r *http.Request) {
 	if !h.soloInterno(w, r, "listarUnidades") {
 		return
@@ -271,13 +273,63 @@ func (h *Handlers) ListarUnidades(w http.ResponseWriter, r *http.Request) {
 	if c := r.URL.Query().Get("cursor"); c != "" {
 		params.Cursor = &c
 	}
-	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	bearer := r.Header.Get("Authorization")
+	ctx := tokenctx.Con(r.Context(), bearer)
 	pagina, err := h.deps.Operacion.ListarUnidades(ctx, params)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
-	escribirJSON(w, http.StatusOK, pagina)
+	out := bffclient.PaginaUnidades{CursorSiguiente: pagina.CursorSiguiente, Items: make([]bffclient.Unidad, 0, len(pagina.Items))}
+	for _, u := range pagina.Items {
+		legible, err := h.unidadLegible(ctx, bearer, u)
+		if err != nil {
+			escribirError(w, err)
+			return
+		}
+		out.Items = append(out.Items, legible)
+	}
+	escribirJSON(w, http.StatusOK, out)
+}
+
+// unidadLegible copia la unidad de operacion y le agrega el económico, las
+// placas y el nombre de los custodios. Un vehículo o custodio que ya no está en
+// el catálogo (404) se omite y el panel muestra su id; cualquier otro error
+// hace fallar la lista.
+//
+// shortcut: una lectura a catalogos por vehículo y por custodio de la página
+// (N+1, en proceso dentro de core); pasar a una lectura por lote si el roster
+// crece más allá de unas decenas de unidades.
+func (h *Handlers) unidadLegible(ctx context.Context, bearer string, u opclient.Unidad) (bffclient.Unidad, error) {
+	out := bffclient.Unidad{
+		Id:           u.Id,
+		VehiculoId:   u.VehiculoId,
+		CustodiosIds: u.CustodiosIds,
+		Activa:       u.Activa,
+	}
+	if u.Tipo != nil {
+		t := bffclient.UnidadTipo(*u.Tipo)
+		out.Tipo = &t
+	}
+	v, err := h.deps.Catalogos.ObtenerVehiculo(ctx, bearer, catclient.Id(u.VehiculoId))
+	switch {
+	case err == nil:
+		out.Vehiculo = &bffclient.VehiculoUnidad{Economico: v.Economico, Placas: v.Placas}
+	case platformerrors.AsCategory(err) != platformerrors.CategoryNoEncontrado:
+		return out, err
+	}
+	custodios := make([]bffclient.CustodioUnidad, 0, len(u.CustodiosIds))
+	for _, id := range u.CustodiosIds {
+		c, err := h.deps.Catalogos.ObtenerCustodio(ctx, bearer, catclient.Id(id))
+		switch {
+		case err == nil:
+			custodios = append(custodios, bffclient.CustodioUnidad{Id: id, Nombre: c.Nombre})
+		case platformerrors.AsCategory(err) != platformerrors.CategoryNoEncontrado:
+			return out, err
+		}
+	}
+	out.Custodios = &custodios
+	return out, nil
 }
 
 // CompletarFechaHora delega en operacion.completarFechaHora y, como fijarEta,
