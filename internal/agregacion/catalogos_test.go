@@ -22,6 +22,8 @@ type fakeCatalogos struct {
 	clientes  map[catclient.Id]*catclient.Cliente
 	vehiculos map[catclient.Id]*catclient.Vehiculo
 	custodios map[catclient.Id]*catclient.Custodio
+	// errVehiculo, si no es nil, lo devuelve ObtenerVehiculo (catalogos caído).
+	errVehiculo error
 
 	// Catálogo de GPS (E8-T12): respuesta y params recibidos.
 	gps        *catclient.PaginaGps
@@ -35,6 +37,9 @@ func (f *fakeCatalogos) ObtenerCliente(ctx context.Context, bearer string, id ca
 	return nil, platformerrors.NewNoEncontrado("cliente %s", id)
 }
 func (f *fakeCatalogos) ObtenerVehiculo(ctx context.Context, bearer string, id catclient.Id) (*catclient.Vehiculo, error) {
+	if f.errVehiculo != nil {
+		return nil, f.errVehiculo
+	}
 	if v, ok := f.vehiculos[id]; ok {
 		return v, nil
 	}
