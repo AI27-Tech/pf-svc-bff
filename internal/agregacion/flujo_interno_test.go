@@ -320,7 +320,7 @@ func TestFlujoInternoAudienciaInternaReenvia(t *testing.T) {
 	for _, c := range casosFlujo() {
 		t.Run(c.op, func(t *testing.T) {
 			f := fakeFlujo()
-			rec := peticionFlujo(t, c.handler(NewHandlers(Deps{Operacion: f})), c.metodo, c.url, c.subParam, c.cuerpo, auth.AudienciaInterno)
+			rec := peticionFlujo(t, c.handler(NewHandlers(Deps{Operacion: f, Catalogos: &fakeCatalogos{}})), c.metodo, c.url, c.subParam, c.cuerpo, auth.AudienciaInterno)
 			if rec.Code != c.status {
 				t.Fatalf("status = %d, se esperaba %d; cuerpo: %s", rec.Code, c.status, rec.Body.String())
 			}
@@ -341,7 +341,7 @@ func TestFlujoInternoAudienciaClienteEs403(t *testing.T) {
 	for _, c := range casosFlujo() {
 		t.Run(c.op, func(t *testing.T) {
 			f := fakeFlujo()
-			rec := peticionFlujo(t, c.handler(NewHandlers(Deps{Operacion: f})), c.metodo, c.url, c.subParam, c.cuerpo, auth.AudienciaCliente)
+			rec := peticionFlujo(t, c.handler(NewHandlers(Deps{Operacion: f, Catalogos: &fakeCatalogos{}})), c.metodo, c.url, c.subParam, c.cuerpo, auth.AudienciaCliente)
 			if rec.Code != http.StatusForbidden {
 				t.Fatalf("status = %d, se esperaba 403; cuerpo: %s", rec.Code, rec.Body.String())
 			}
