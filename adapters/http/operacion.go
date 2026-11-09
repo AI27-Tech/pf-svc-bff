@@ -376,6 +376,53 @@ func (a *OperacionHTTP) ListarUnidades(ctx context.Context, params opclient.List
 	return resp.JSON200, nil
 }
 
+// CrearUnidad reenvia a operacion.crearUnidad (E8-T21). Propaga el codigo del
+// 409 de exclusividad (vehiculo_en_otra_unidad, custodio_en_otra_unidad).
+func (a *OperacionHTTP) CrearUnidad(ctx context.Context, body opclient.UnidadEntrada) (*opclient.Unidad, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CrearUnidadWithResponse(ctx, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("CrearUnidad", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeRespuesta("CrearUnidad", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON201, nil
+}
+
+// ObtenerUnidad reenvia a operacion.obtenerUnidad.
+func (a *OperacionHTTP) ObtenerUnidad(ctx context.Context, id opclient.Id) (*opclient.Unidad, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ObtenerUnidadWithResponse(ctx, id, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ObtenerUnidad", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ObtenerUnidad", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// ModificarUnidad reenvia a operacion.modificarUnidad. Propaga el codigo del
+// 409 (exclusividad o unidad_con_reserva_vigente).
+func (a *OperacionHTTP) ModificarUnidad(ctx context.Context, id opclient.Id, body opclient.UnidadModificacion) (*opclient.Unidad, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ModificarUnidadWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ModificarUnidad", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("ModificarUnidad", resp.StatusCode(), codigo409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}
+
 // CompletarFechaHora reenvia a operacion.completarFechaHora; propaga el codigo
 // del 409 (viaje_en_estado_terminal).
 func (a *OperacionHTTP) CompletarFechaHora(ctx context.Context, id opclient.Id, body opclient.FechaHoraEntrada) (*opclient.Viaje, error) {

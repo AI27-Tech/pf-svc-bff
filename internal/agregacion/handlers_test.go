@@ -586,6 +586,9 @@ type fakeOperacion struct {
 	unidades          *opclient.PaginaUnidades
 	paginaIncidencias *opclient.PaginaIncidencias
 	ficha             *opclient.FichaTecnica
+
+	// Roster (tracer.39): la unidad que devuelven crear, obtener y modificar.
+	unidad *opclient.Unidad
 }
 
 func (f *fakeOperacion) ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error) {
