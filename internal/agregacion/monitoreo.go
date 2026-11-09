@@ -35,13 +35,20 @@ var rolesMonitoreo = map[roles.Rol]bool{
 // soloMonitoreo exige uno de los roles de monitoreo. Devuelve false y ya escribió
 // el error (401 sin claims, 403 con otro rol) cuando no procede.
 func (h *Handlers) soloMonitoreo(w http.ResponseWriter, r *http.Request, op string) bool {
+	return h.soloRoles(w, r, op, rolesMonitoreo)
+}
+
+// soloRoles exige que el rol del token esté en permitidos. Devuelve false y ya
+// escribió el error (401 sin claims, 403 con otro rol, Cliente incluido) cuando
+// no procede.
+func (h *Handlers) soloRoles(w http.ResponseWriter, r *http.Request, op string, permitidos map[roles.Rol]bool) bool {
 	claims := autorizacion.ClaimsDe(r.Context())
 	if claims == nil {
 		escribirError(w, platformerrors.NewNoAutorizado("bff: %s: sin claims", op))
 		return false
 	}
-	if !rolesMonitoreo[roles.Rol(claims.Rol)] {
-		escribirError(w, platformerrors.NewProhibido("bff: %s: solo para los roles de monitoreo", op))
+	if !permitidos[roles.Rol(claims.Rol)] {
+		escribirError(w, platformerrors.NewProhibido("bff: %s: el rol %q no tiene esta facultad", op, claims.Rol))
 		return false
 	}
 	return true

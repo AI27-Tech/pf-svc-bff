@@ -110,6 +110,14 @@ type OperacionPort interface {
 
 	// ListarUnidades lee UNA página del roster para asignar la escolta.
 	ListarUnidades(ctx context.Context, params opclient.ListarUnidadesParams) (*opclient.PaginaUnidades, error)
+	// CrearUnidad, ObtenerUnidad y ModificarUnidad arman el roster en /roster
+	// (E8-T21, DEC-142). operacion decide el rol (jefe_operativo,
+	// administrador) y las reglas; sus 409 llegan con codigo
+	// (vehiculo_en_otra_unidad, custodio_en_otra_unidad,
+	// unidad_con_reserva_vigente).
+	CrearUnidad(ctx context.Context, body opclient.UnidadEntrada) (*opclient.Unidad, error)
+	ObtenerUnidad(ctx context.Context, id opclient.Id) (*opclient.Unidad, error)
+	ModificarUnidad(ctx context.Context, id opclient.Id, body opclient.UnidadModificacion) (*opclient.Unidad, error)
 	// CompletarFechaHora fija fecha_hora_servicio antes de aprobar. Devuelve el
 	// Viaje plano; el handler recompone el detalle interno con ObtenerViaje.
 	CompletarFechaHora(ctx context.Context, id opclient.Id, body opclient.FechaHoraEntrada) (*opclient.Viaje, error)
@@ -252,6 +260,17 @@ type CatalogosPort interface {
 	// ListarGps lista una página de dispositivos GPS activos para el selector de
 	// la ficha técnica (E8-T12, DEC-104 #5). El filtro lo resuelve catalogos.
 	ListarGps(ctx context.Context, bearer string, params catclient.ListarGpsParams) (*catclient.PaginaGps, error)
+
+	// Vehículos y custodios de /catalogos (adelanto de E8-T16, DEC-142 #6). La
+	// lectura por id reusa ObtenerVehiculo y ObtenerCustodio. catalogos no
+	// revisa rol: la guarda (leer jefe_operativo y administrador, escribir solo
+	// administrador) la aplica el handler antes de llamar.
+	ListarVehiculos(ctx context.Context, bearer string, params catclient.ListarVehiculosParams) (*catclient.PaginaVehiculos, error)
+	CrearVehiculo(ctx context.Context, bearer string, body catclient.VehiculoEntrada) (*catclient.Vehiculo, error)
+	ActualizarVehiculo(ctx context.Context, bearer string, id catclient.Id, body catclient.VehiculoCambios) (*catclient.Vehiculo, error)
+	ListarCustodios(ctx context.Context, bearer string, params catclient.ListarCustodiosParams) (*catclient.PaginaCustodios, error)
+	CrearCustodio(ctx context.Context, bearer string, body catclient.CustodioEntrada) (*catclient.Custodio, error)
+	ActualizarCustodio(ctx context.Context, bearer string, id catclient.Id, body catclient.CustodioCambios) (*catclient.Custodio, error)
 }
 
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New

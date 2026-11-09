@@ -280,16 +280,26 @@ func (h *Handlers) ListarUnidades(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, err)
 		return
 	}
-	out := bffclient.PaginaUnidades{CursorSiguiente: pagina.CursorSiguiente, Items: make([]bffclient.Unidad, 0, len(pagina.Items))}
-	for _, u := range pagina.Items {
-		legible, err := h.unidadLegible(ctx, bearer, u)
-		if err != nil {
-			escribirError(w, err)
-			return
-		}
-		out.Items = append(out.Items, legible)
+	out := bffclient.PaginaUnidades{CursorSiguiente: pagina.CursorSiguiente}
+	if out.Items, err = h.unidadesLegibles(ctx, bearer, pagina.Items); err != nil {
+		escribirError(w, err)
+		return
 	}
 	escribirJSON(w, http.StatusOK, out)
+}
+
+// unidadesLegibles aplica unidadLegible a cada unidad. Nunca devuelve nil: una
+// lista vacía sale como [] en el JSON.
+func (h *Handlers) unidadesLegibles(ctx context.Context, bearer string, us []opclient.Unidad) ([]bffclient.Unidad, error) {
+	out := make([]bffclient.Unidad, 0, len(us))
+	for _, u := range us {
+		legible, err := h.unidadLegible(ctx, bearer, u)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, legible)
+	}
+	return out, nil
 }
 
 // unidadLegible copia la unidad de operacion y le agrega el económico, las
