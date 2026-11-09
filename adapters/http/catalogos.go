@@ -100,3 +100,104 @@ func (a *CatalogosHTTP) ListarGps(ctx context.Context, bearer string, params cat
 	}
 	return resp.JSON200, nil
 }
+
+// codigoCatalogos409 extrae el codigo de maquina de un 409 de catalogos, igual
+// que codigo409 para operacion.
+func codigoCatalogos409(e *catclient.Error) string {
+	if e == nil {
+		return ""
+	}
+	return e.Codigo
+}
+
+// ListarVehiculos reenvía a catalogos.listarVehiculos: activos e inactivos,
+// paginado por cursor (E8-T16, DEC-142 #6).
+func (a *CatalogosHTTP) ListarVehiculos(ctx context.Context, bearer string, params catclient.ListarVehiculosParams) (*catclient.PaginaVehiculos, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarVehiculosWithResponse(ctx, &params, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarVehiculos", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarVehiculos", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// CrearVehiculo reenvía a catalogos.crearVehiculo (versión 1).
+func (a *CatalogosHTTP) CrearVehiculo(ctx context.Context, bearer string, body catclient.VehiculoEntrada) (*catclient.Vehiculo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CrearVehiculoWithResponse(ctx, body, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("CrearVehiculo", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeRespuesta("CrearVehiculo", resp.StatusCode(), codigoCatalogos409(resp.JSON409))
+	}
+	return resp.JSON201, nil
+}
+
+// ActualizarVehiculo reenvía a catalogos.actualizarVehiculo (versión siguiente).
+func (a *CatalogosHTTP) ActualizarVehiculo(ctx context.Context, bearer string, id catclient.Id, body catclient.VehiculoCambios) (*catclient.Vehiculo, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ActualizarVehiculoWithResponse(ctx, id, body, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ActualizarVehiculo", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("ActualizarVehiculo", resp.StatusCode(), codigoCatalogos409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}
+
+// ListarCustodios reenvía a catalogos.listarCustodios: activos e inactivos,
+// paginado por cursor.
+func (a *CatalogosHTTP) ListarCustodios(ctx context.Context, bearer string, params catclient.ListarCustodiosParams) (*catclient.PaginaCustodios, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ListarCustodiosWithResponse(ctx, &params, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ListarCustodios", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ListarCustodios", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}
+
+// CrearCustodio reenvía a catalogos.crearCustodio (versión 1).
+func (a *CatalogosHTTP) CrearCustodio(ctx context.Context, bearer string, body catclient.CustodioEntrada) (*catclient.Custodio, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CrearCustodioWithResponse(ctx, body, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("CrearCustodio", err)
+	}
+	if resp.JSON201 == nil {
+		return nil, errores.DeRespuesta("CrearCustodio", resp.StatusCode(), codigoCatalogos409(resp.JSON409))
+	}
+	return resp.JSON201, nil
+}
+
+// ActualizarCustodio reenvía a catalogos.actualizarCustodio (versión siguiente).
+func (a *CatalogosHTTP) ActualizarCustodio(ctx context.Context, bearer string, id catclient.Id, body catclient.CustodioCambios) (*catclient.Custodio, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ActualizarCustodioWithResponse(ctx, id, body, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ActualizarCustodio", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeRespuesta("ActualizarCustodio", resp.StatusCode(), codigoCatalogos409(resp.JSON409))
+	}
+	return resp.JSON200, nil
+}

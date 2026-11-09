@@ -1,5 +1,27 @@
 # CHANGELOG
 
+## 2026-11-09 13:24 — `/roster` y vehículos y custodios de `/catalogos` (tracer.39, E8-T21, DEC-142)
+
+**Para quién:** el panel interno. El Jefe Operativo y el Administrador ya pueden dar de alta, ver y editar unidades del roster (incluido activar y desactivar) por el `bff`; el Administrador da de alta y edita vehículos y custodios, y el Jefe Operativo los lee para armar unidades. La ficha técnica lee la escolta de SU viaje con `obtenerAsignacion` en lugar de pedir el roster completo, que responde 403 al monitorista.
+
+**Comportamiento:**
+- `POST /api/v1/unidades` (`crearUnidad`), `GET`/`PATCH /api/v1/unidades/{id}` (`obtenerUnidad`/`modificarUnidad`) → `operacion`. Audiencia Interna (Cliente 403); el rol lo decide `operacion`. Responden la `Unidad` legible (vehículo y custodios de `catalogos`, como `listarUnidades`). Los 409 `vehiculo_en_otra_unidad`, `custodio_en_otra_unidad` y `unidad_con_reserva_vigente` llegan con su `codigo`. El cuerpo se decodifica estricto, como en `operacion`: mandar `tipo` es 400.
+- `GET /api/v1/viajes/{id}/asignacion` (`obtenerAsignacion`) → `operacion.obtenerAsignacion` con unidades legibles. Cualquier rol interno; Cliente 404 sin tocar ningún puerto; sin asignación, `unidades: []`.
+- `/api/v1/vehiculos` y `/api/v1/custodios` (`listar*`, `crear*`, `obtener*`, `actualizar*`) → `catalogos`. `catalogos` no revisa rol, así que el `bff` aplica la guarda: leen `jefe_operativo` y `administrador`; escribe solo `administrador`; cualquier otro rol, Cliente incluido, 403 antes de llamar.
+- Alta de vehículo sin `cliente_id` (DEC-143): si el llamante lo manda, se descarta y no llega a `catalogos`.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` `tracer.38` → `tracer.39`. Compiló sin renombrados: el `bff` no usaba ninguna de las constantes que el generador prefijó.
+- `internal/agregacion/ports.go`: `CrearUnidad`, `ObtenerUnidad` y `ModificarUnidad` en `OperacionPort`; `ListarVehiculos`, `CrearVehiculo`, `ActualizarVehiculo`, `ListarCustodios`, `CrearCustodio` y `ActualizarCustodio` en `CatalogosPort`. `pf-svc-core` debe implementarlos en sus adaptadores en proceso.
+- `internal/agregacion/roster.go`: los 12 handlers, las tablas de roles de vehículos y custodios y `decodificarEstricto`.
+- `internal/agregacion/flujo_interno.go`: `unidadesLegibles` (lo comparten `listarUnidades` y `obtenerAsignacion`).
+- `internal/agregacion/monitoreo.go`: `soloMonitoreo` delega en `soloRoles`, la misma guarda que usan vehículos y custodios.
+- `adapters/http/operacion.go`, `adapters/http/catalogos.go`: los reenvíos HTTP; los 409 conservan su `codigo`.
+- `bff.go`: 12 rutas.
+- Pruebas: `TestUnidadLegibleEnCrearObtenerModificar`, `TestUnidadesPropaganConflictoConCodigo`, `TestCrearUnidadCampoFueraDeContratoEs400`, `TestUnidadesClienteEs403`, `TestRecursosGuardaDeRol`, `TestCrearVehiculoDescartaClienteId`, `TestObtenerAsignacion`; por HTTP con servidor de prueba, `TestUnidades409ConservanCodigoPorHTTP` y `TestCrearVehiculoNoReenviaClienteId`; las 12 rutas en `TestRutasMontadasContraContrato`.
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go build ./...`, `go test -count=1 ./...` y `arch-test@v0.1.1` en verde. Nueve mutaciones (aplanar el 409 en el adaptador, quitar la guarda de escritura o de lectura, reenviar `cliente_id`, responder la unidad sin componer, `obtenerAsignacion` sin legibles o con 403 al Cliente, decodificado laxo) hacen fallar al menos una prueba cada una.
+
 ## 2026-11-06 14:20 — `listarUnidades` trae el vehículo y los custodios legibles (tracer.38, DT-19)
 
 **Para quién:** el panel interno. En "Asignar escolta", el alta de viaje y la ficha técnica, cada unidad del roster se mostraba como UUID de vehículo y de custodios. Ahora cada unidad de `GET /api/v1/unidades` trae `vehiculo` (`economico`, `placas`) y `custodios` (`id`, `nombre`) leídos de `catalogos`, como ya lo hace la escolta del detalle de Reacción (DEC-121). Si el vehículo o un custodio ya no está en el catálogo, se omite y el panel muestra el id. Otro error de `catalogos` hace fallar la lista.

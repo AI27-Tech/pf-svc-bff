@@ -208,6 +208,22 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/viajes/{id}/ficha", protegido(http.HandlerFunc(m.handlers.ObtenerFicha)))
 	mux.Handle("PATCH /api/v1/viajes/{id}/ficha", protegido(http.HandlerFunc(m.handlers.GuardarFicha)))
 	mux.Handle("GET /api/v1/gps", protegido(http.HandlerFunc(m.handlers.ListarGps)))
+	// /roster del Jefe Operativo y vehículos y custodios de /catalogos (tracer.39,
+	// E8-T21, DEC-142). Unidades: audiencia Interna, operacion decide el rol.
+	// Vehículos y custodios: el bff aplica la guarda de rol (catalogos no la
+	// revisa). La escolta del viaje la lee cualquier rol interno.
+	mux.Handle("POST /api/v1/unidades", protegido(http.HandlerFunc(m.handlers.CrearUnidad)))
+	mux.Handle("GET /api/v1/unidades/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerUnidad)))
+	mux.Handle("PATCH /api/v1/unidades/{id}", protegido(http.HandlerFunc(m.handlers.ModificarUnidad)))
+	mux.Handle("GET /api/v1/viajes/{id}/asignacion", protegido(http.HandlerFunc(m.handlers.ObtenerAsignacion)))
+	mux.Handle("GET /api/v1/vehiculos", protegido(http.HandlerFunc(m.handlers.ListarVehiculos)))
+	mux.Handle("POST /api/v1/vehiculos", protegido(http.HandlerFunc(m.handlers.CrearVehiculo)))
+	mux.Handle("GET /api/v1/vehiculos/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerVehiculo)))
+	mux.Handle("PATCH /api/v1/vehiculos/{id}", protegido(http.HandlerFunc(m.handlers.ActualizarVehiculo)))
+	mux.Handle("GET /api/v1/custodios", protegido(http.HandlerFunc(m.handlers.ListarCustodios)))
+	mux.Handle("POST /api/v1/custodios", protegido(http.HandlerFunc(m.handlers.CrearCustodio)))
+	mux.Handle("GET /api/v1/custodios/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerCustodio)))
+	mux.Handle("PATCH /api/v1/custodios/{id}", protegido(http.HandlerFunc(m.handlers.ActualizarCustodio)))
 	// Dashboard de monitoreo (E8-T17): reenvío a reportes. Los handlers exigen un
 	// rol de monitoreo (monitorista, supervisor, coordinador, administrador); el
 	// resto recibe 403. El reporte sale sin recortar, con proyeccion_al y stale.
