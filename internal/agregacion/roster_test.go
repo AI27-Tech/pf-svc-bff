@@ -30,6 +30,9 @@ func (f *fakeOperacion) CrearUnidad(ctx context.Context, body opclient.UnidadEnt
 
 func (f *fakeOperacion) ObtenerUnidad(ctx context.Context, id opclient.Id) (*opclient.Unidad, error) {
 	f.bearerRecibido = tokenctx.De(ctx)
+	if f.unidadesRoster != nil && !f.unidadesRoster[id] {
+		return nil, platformerrors.NewNoEncontrado("unidad %s", id)
+	}
 	if err := f.flujo("ObtenerUnidad", id, opclient.Id{}, nil); err != nil {
 		return nil, err
 	}

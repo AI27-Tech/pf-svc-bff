@@ -224,6 +224,26 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/custodios", protegido(http.HandlerFunc(m.handlers.CrearCustodio)))
 	mux.Handle("GET /api/v1/custodios/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerCustodio)))
 	mux.Handle("PATCH /api/v1/custodios/{id}", protegido(http.HandlerFunc(m.handlers.ActualizarCustodio)))
+	// Administración de usuarios, alcance y organizaciones (tracer.40, E8-T19).
+	// Escribe solo administrador, salvo fijarUnidadesSujeto, que también escribe
+	// jefe_operativo. Usuarios y alcance reenvían a identidad, que conserva sus
+	// `codigo`; las organizaciones escriben en catalogos y en identidad con el
+	// mismo id (DEC-144 #2).
+	mux.Handle("GET /api/v1/sujetos", protegido(http.HandlerFunc(m.handlers.ListarSujetos)))
+	mux.Handle("POST /api/v1/sujetos", protegido(http.HandlerFunc(m.handlers.AltaSujeto)))
+	mux.Handle("GET /api/v1/sujetos/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerSujeto)))
+	mux.Handle("PATCH /api/v1/sujetos/{id}", protegido(http.HandlerFunc(m.handlers.EditarSujeto)))
+	mux.Handle("DELETE /api/v1/sujetos/{id}", protegido(http.HandlerFunc(m.handlers.DesactivarSujeto)))
+	mux.Handle("POST /api/v1/sujetos/{id}/reactivacion", protegido(http.HandlerFunc(m.handlers.ReactivarSujeto)))
+	mux.Handle("PUT /api/v1/sujetos/{id}/rol", protegido(http.HandlerFunc(m.handlers.FijarRolSujeto)))
+	mux.Handle("POST /api/v1/sujetos/{id}/revocaciones", protegido(http.HandlerFunc(m.handlers.RevocarSesionesSujeto)))
+	mux.Handle("GET /api/v1/sujetos/{id}/alcance", protegido(http.HandlerFunc(m.handlers.ObtenerAlcanceSujeto)))
+	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/unidades", protegido(http.HandlerFunc(m.handlers.FijarUnidadesSujeto)))
+	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/subordinados", protegido(http.HandlerFunc(m.handlers.FijarSubordinadosSujeto)))
+	mux.Handle("GET /api/v1/organizaciones", protegido(http.HandlerFunc(m.handlers.ListarOrganizaciones)))
+	mux.Handle("POST /api/v1/organizaciones", protegido(http.HandlerFunc(m.handlers.CrearOrganizacion)))
+	mux.Handle("PATCH /api/v1/organizaciones/{id}", protegido(http.HandlerFunc(m.handlers.ActualizarOrganizacion)))
+	mux.Handle("DELETE /api/v1/organizaciones/{id}", protegido(http.HandlerFunc(m.handlers.DesactivarOrganizacion)))
 	// Dashboard de monitoreo (E8-T17): reenvío a reportes. Los handlers exigen un
 	// rol de monitoreo (monitorista, supervisor, coordinador, administrador); el
 	// resto recibe 403. El reporte sale sin recortar, con proyeccion_al y stale.

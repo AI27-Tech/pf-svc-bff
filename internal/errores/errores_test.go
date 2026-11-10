@@ -41,6 +41,19 @@ func TestDeRespuesta403EsProhibido(t *testing.T) {
 	}
 }
 
+// TestDeRespuesta403ConservaCodigo: un 403 con código de máquina (el
+// `autoescalamiento` de identidad) lo conserva; sin código sigue siendo el
+// genérico `prohibido` (TestDeRespuesta403EsProhibido).
+func TestDeRespuesta403ConservaCodigo(t *testing.T) {
+	err := DeRespuesta("FijarRolSujeto", http.StatusForbidden, "autoescalamiento")
+	if got := platformerrors.AsCategory(err); got != platformerrors.CategoryProhibido {
+		t.Errorf("categoria = %d, se esperaba Prohibido", got)
+	}
+	if got := platformerrors.CodigoDe(err); got != "autoescalamiento" {
+		t.Errorf("codigo = %q, se esperaba autoescalamiento", got)
+	}
+}
+
 // TestDeStatusEsDeRespuestaSinCodigo: DeStatus sigue siendo DeRespuesta con
 // código vacío (no se tocó a los call sites sin código).
 func TestDeStatusEsDeRespuestaSinCodigo(t *testing.T) {
