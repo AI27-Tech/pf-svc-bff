@@ -37,9 +37,13 @@ type fakeCatalogos struct {
 	custodio        *catclient.Custodio
 	paginaVehiculos *catclient.PaginaVehiculos
 	paginaCustodios *catclient.PaginaCustodios
+
+	// Expediente de la organización (tracer.40).
+	orgFake
 }
 
 func (f *fakeCatalogos) ObtenerCliente(ctx context.Context, bearer string, id catclient.Id) (*catclient.Cliente, error) {
+	f.obtenerClienteLlamadas++
 	if c, ok := f.clientes[id]; ok {
 		return c, nil
 	}
@@ -62,6 +66,9 @@ func (f *fakeCatalogos) ObtenerCustodio(ctx context.Context, bearer string, id c
 }
 
 func (f *fakeCatalogos) ListarClientes(ctx context.Context, bearer string, params catclient.ListarClientesParams) (*catclient.PaginaClientes, error) {
+	if params.Ids != nil {
+		return f.clientesPorLote(*params.Ids)
+	}
 	return nil, f.err
 }
 func (f *fakeCatalogos) ListarTiposServicio(ctx context.Context, bearer string, params catclient.ListarValoresCatalogoParams) (*catclient.PaginaValoresCatalogo, error) {
