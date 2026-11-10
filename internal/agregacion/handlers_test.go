@@ -490,6 +490,9 @@ type fakeIdentidad struct {
 	refrescarRecibio idclient.RefrescoEntrada
 	revocarLlamado   bool
 	revocarRecibio   idclient.Id
+
+	// Gobierno de usuarios, alcance y tenants (tracer.40).
+	gobiernoFake
 }
 
 func (f *fakeIdentidad) EmitirSesion(_ context.Context, body idclient.CredencialesEntrada) (*idclient.SesionEmitida, error) {
@@ -589,6 +592,9 @@ type fakeOperacion struct {
 
 	// Roster (tracer.39): la unidad que devuelven crear, obtener y modificar.
 	unidad *opclient.Unidad
+	// unidadesRoster, si no es nil, son las unidades que existen: ObtenerUnidad
+	// responde 404 para las demás (fijarUnidadesSujeto, tracer.40).
+	unidadesRoster map[opclient.Id]bool
 }
 
 func (f *fakeOperacion) ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error) {
