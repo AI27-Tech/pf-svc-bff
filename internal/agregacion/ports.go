@@ -35,6 +35,28 @@ type IdentidadPort interface {
 	// ObtenerSesion es el fallback cuando el canal de revocacion no tiene frescura
 	// (ADR 26). Nunca verifica el token: solo consulta estado de la sesion.
 	ObtenerSesion(ctx context.Context, id idclient.Id) (*idclient.EstadoSesion, error)
+
+	// Gobierno de usuarios, alcance y tenants (tracer.40, E8-T19). Cada método
+	// reenvía al operationId homónimo de identidad, que es la autoridad de rol y
+	// de reglas: sus 403 y 409 llegan con su `codigo`. El actor sale de los
+	// claims: el adaptador en proceso los encuentra en el ctx
+	// (auth.ContextWithClaims del middleware) y el HTTP propaga el Bearer de
+	// tokenctx. Mismas firmas que identidad.Consultas().Gobierno().
+	ListarSujetos(ctx context.Context, params idclient.ListarSujetosParams) (*idclient.PaginaSujetos, error)
+	AltaSujeto(ctx context.Context, body idclient.AltaSujetoEntrada) (*idclient.Sujeto, error)
+	ObtenerSujeto(ctx context.Context, id idclient.Id) (*idclient.SujetoDetalle, error)
+	EditarSujeto(ctx context.Context, id idclient.Id, body idclient.EdicionSujetoEntrada) (*idclient.SujetoDetalle, error)
+	DesactivarSujeto(ctx context.Context, id idclient.Id) error
+	ReactivarSujeto(ctx context.Context, id idclient.Id) error
+	FijarRolSujeto(ctx context.Context, id idclient.Id, body idclient.AsignacionRolEntrada) error
+	RevocarSesionesSujeto(ctx context.Context, id idclient.Id, body idclient.RevocacionSesionesEntrada) (*idclient.RevocacionSesionesResultado, error)
+	ObtenerAlcanceSujeto(ctx context.Context, id idclient.Id) (*idclient.AlcanceSujeto, error)
+	FijarUnidadesSujeto(ctx context.Context, id idclient.Id, body idclient.UnidadesSujetoEntrada) error
+	FijarSubordinadosSujeto(ctx context.Context, id idclient.Id, body idclient.SubordinadosSujetoEntrada) error
+	ListarTenants(ctx context.Context, params idclient.ListarTenantsParams) (*idclient.PaginaTenants, error)
+	// CrearTenant es idempotente por id: creado es false si ya existía (200).
+	CrearTenant(ctx context.Context, id idclient.Id, body idclient.TenantEntrada) (t *idclient.Tenant, creado bool, err error)
+	DesactivarTenant(ctx context.Context, id idclient.Id) error
 }
 
 // OperacionPort es la arista a operacion: crear viaje, listar por alcance,
@@ -271,6 +293,13 @@ type CatalogosPort interface {
 	ListarCustodios(ctx context.Context, bearer string, params catclient.ListarCustodiosParams) (*catclient.PaginaCustodios, error)
 	CrearCustodio(ctx context.Context, bearer string, body catclient.CustodioEntrada) (*catclient.Custodio, error)
 	ActualizarCustodio(ctx context.Context, bearer string, id catclient.Id, body catclient.CustodioCambios) (*catclient.Custodio, error)
+
+	// Expediente de la organización cliente (tracer.40, DEC-144 #2). catalogos
+	// no revisa rol ni la terminalidad de la organización: las dos guardas son
+	// del bff. CrearCliente es idempotente por id: creado es false si ya existía
+	// (200). La lectura por lote de clientes es ListarClientes con params.Ids.
+	CrearCliente(ctx context.Context, bearer string, id catclient.Id, body catclient.ClienteEntrada) (cl *catclient.Cliente, creado bool, err error)
+	ActualizarCliente(ctx context.Context, bearer string, id catclient.Id, body catclient.ClienteCambios) (*catclient.Cliente, error)
 }
 
 // Deps son los puertos que los handlers necesitan. La raiz los resuelve y New

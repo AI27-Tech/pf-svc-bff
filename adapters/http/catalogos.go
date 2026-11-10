@@ -201,3 +201,38 @@ func (a *CatalogosHTTP) ActualizarCustodio(ctx context.Context, bearer string, i
 	}
 	return resp.JSON200, nil
 }
+
+// CrearCliente reenvía a catalogos.crearCliente (PUT idempotente por id,
+// tracer.40): 201 si lo creó, 200 si ya existía y se devuelve sin cambios.
+func (a *CatalogosHTTP) CrearCliente(ctx context.Context, bearer string, id catclient.Id, body catclient.ClienteEntrada) (*catclient.Cliente, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.CrearClienteWithResponse(ctx, id, body, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, false, errores.DeTransporte("CrearCliente", err)
+	}
+	if resp.JSON201 != nil {
+		return resp.JSON201, true, nil
+	}
+	if resp.JSON200 != nil {
+		return resp.JSON200, false, nil
+	}
+	return nil, false, errores.DeStatus("CrearCliente", resp.StatusCode())
+}
+
+// ActualizarCliente reenvía a catalogos.actualizarCliente (versión siguiente;
+// desactivar es `estado` inactivo).
+func (a *CatalogosHTTP) ActualizarCliente(ctx context.Context, bearer string, id catclient.Id, body catclient.ClienteCambios) (*catclient.Cliente, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ActualizarClienteWithResponse(ctx, id, body, conBearerCatalogos(bearer))
+	if err != nil {
+		return nil, errores.DeTransporte("ActualizarCliente", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, errores.DeStatus("ActualizarCliente", resp.StatusCode())
+	}
+	return resp.JSON200, nil
+}

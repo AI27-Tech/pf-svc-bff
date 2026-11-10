@@ -1,5 +1,31 @@
 # CHANGELOG
 
+## 2026-11-10 14:05 — Administración de usuarios, alcance y organizaciones (tracer.40, E8-T19)
+
+**Para quién:** el panel interno. El Administrador ya puede listar, buscar, dar de alta, editar, desactivar y reactivar usuarios, cambiarles el rol, revocarles la sesión con motivo, fijar "mis unidades" de un Monitorista y los subordinados de un Supervisor o Coordinador, y administrar organizaciones cliente (alta, listado, edición y desactivación terminal). El Jefe Operativo lee Monitoristas, lee su alcance y fija "mis unidades" desde `/roster`.
+
+**Comportamiento:**
+- 15 operaciones del tag `administracion` de `bff.yaml`. Escribe solo `administrador`; `fijarUnidadesSujeto` también `jefe_operativo`. El `jefe_operativo` lee `listarSujetos` solo con `rol=monitorista` (sin filtro u otro rol, 403) y `obtenerAlcanceSujeto`. Cualquier otro rol, Cliente incluido, 403 antes de tocar un puerto.
+- Usuarios y alcance reenvían a `identidad` con los claims en el ctx y conservan su status y `codigo`: 403 `autoescalamiento`; 409 `rol_igual`, `sujeto_desactivado`, `ultimo_administrador`, `rol_cruza_audiencia`, `rol_sin_alcance`, `subordinado_rol_invalido` y `subordinado_con_superior`.
+- `UsuarioAdmin`: `es_propio` compara `idp_subject` con el `sub` del token (sin `idp_subject`, false). `organizacion` sale solo para un usuario con rol `cliente`, con el nombre de `catalogos`; en listas, una sola lectura por lote (`listarClientes?ids`). Los opcionales sin dato se omiten.
+- `altaSujeto` (B-7): `organizacion_id` obligatorio para `cliente` y prohibido para un rol interno (400). La organización debe ser un tenant `cliente` (si no, 400) y estar activa (si no, 409 `organizacion_desactivada`). Un rol interno va al único tenant `interno`; si no hay exactamente uno, 503.
+- `fijarUnidadesSujeto`: cada unidad se busca en el roster de `operacion` antes de llamar a `identidad`; una inexistente es 400 y nombra la unidad. Sin `unidades_ids`, 400.
+- `revocarSesionesSujeto`: sin `motivo`, 400.
+- Organizaciones (DEC-144 #2): `crearOrganizacion` escribe primero en `catalogos` y después en `identidad`, con el `id` del cuerpo o uno generado. El listado sale de los tenants, así que un alta a medias no aparece y reintentar con el mismo id la completa. Responde 201 también al completar o repetir, como fija el contrato. Si el tenant está desactivado, 409 `organizacion_desactivada`. `actualizarOrganizacion` exige tenant activo (404 si no existe, 409 si está desactivado) y no toca el estado. `desactivarOrganizacion` desactiva el tenant y después el expediente; repetirla completa una a medias.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` `tracer.39` → `tracer.40`. Compiló sin renombrados.
+- `internal/agregacion/ports.go`: 14 métodos de gobierno y tenants en `IdentidadPort` (mismas firmas que `identidad.Consultas().Gobierno()`); `CrearCliente` y `ActualizarCliente` en `CatalogosPort`. `pf-svc-core` debe implementarlos en proceso.
+- `internal/agregacion/administracion.go`: los 15 handlers, la composición de `UsuarioAdmin` y `Organizacion`, y la lectura completa de tenants (`shortcut`: identidad no expone `obtenerTenant`).
+- `internal/errores/errores.go`: `DeRespuesta` conserva el `codigo` de un 403, como ya hacía con el 409.
+- `adapters/http/identidad_gobierno.go`, `adapters/http/catalogos.go`: los reenvíos HTTP; 403 y 409 de `identidad` conservan su `codigo` y `crearTenant`/`crearCliente` distinguen 201 de 200.
+- `bff.go`: 15 rutas.
+- Pruebas: `TestAdministracionPermisos` (8 roles × 17 casos), `TestAdministracionSinClaimsEs401`, `TestAdministracionClaimsLleganAIdentidad`, `TestUsuarioAdminComposicion`, `TestListarSujetosOrganizacionesPorLote`, `TestAltaSujeto`, `TestRevocarSesionesSujeto`, `TestFijarUnidadesSujetoValidaRoster`, `TestObtenerAlcanceSujetoEspejo`, `TestAdministracionConservaCodigo`, `TestCrearOrganizacion`, `TestListarOrganizaciones`, `TestActualizarOrganizacion`, `TestDesactivarOrganizacion`, `TestDeRespuesta403ConservaCodigo`; por HTTP, `TestGobiernoConservaCodigoPorHTTP` y `TestAltasIdempotentesPorHTTP`; las 15 rutas en `TestRutasMontadasContraContrato`.
+
+**Verificación:** `gofmt` limpio, `go vet ./...`, `go build ./...`, `go build ./cmd/api`, `arch-test@v0.1.1` y `go test -count=1 ./...` en verde. 28 mutaciones (una por regla: permisos, `es_propio`, organización, B-7, roster, motivo, orden e idempotencia de organizaciones, claims en el ctx, `codigo` del 403 en el adaptador) compilan y hacen fallar al menos una prueba cada una.
+
+**Pendiente fuera de este repo:** `catalogos` no atiende hoy `listarClientes?ids` (ni por HTTP ni en proceso), así que en las listas la organización de un cliente puede salir ausente hasta que lo haga o hasta que el adaptador en proceso de core la resuelva.
+
 ## 2026-11-09 13:24 — `/roster` y vehículos y custodios de `/catalogos` (tracer.39, E8-T21, DEC-142)
 
 **Para quién:** el panel interno. El Jefe Operativo y el Administrador ya pueden dar de alta, ver y editar unidades del roster (incluido activar y desactivar) por el `bff`; el Administrador da de alta y edita vehículos y custodios, y el Jefe Operativo los lee para armar unidades. La ficha técnica lee la escolta de SU viaje con `obtenerAsignacion` en lugar de pedir el roster completo, que responde 403 al monitorista.

@@ -28,9 +28,10 @@ func DeStatus(op string, status int) error {
 }
 
 // DeRespuesta es DeStatus con el codigo de maquina del cuerpo aguas abajo. Si
-// codigo no esta vacio y el status es 409, el conflicto conserva ese codigo para
-// que el cliente lo distinga (Ola C). Para los demas status el codigo se ignora:
-// la categoria ya fija el codigo generico en el borde.
+// codigo no esta vacio y el status es 409 o 403, el error conserva ese codigo
+// para que el cliente lo distinga (Ola C; el 403 `autoescalamiento` de
+// identidad, tracer.40). Para los demas status el codigo se ignora: la
+// categoria ya fija el codigo generico en el borde.
 func DeRespuesta(op string, status int, codigo string) error {
 	switch status {
 	case http.StatusUnauthorized:
@@ -38,7 +39,9 @@ func DeRespuesta(op string, status int, codigo string) error {
 	case http.StatusForbidden:
 		// 403 de facultad/alcance aguas abajo (operacion). Se propaga como 403,
 		// no como 401: la plataforma ya distingue Prohibido de NoAutorizado.
-		return platformerrors.NewProhibido("bff: %s: prohibido aguas abajo", op)
+		e := platformerrors.NewProhibido("bff: %s: prohibido aguas abajo", op)
+		e.Codigo = codigo
+		return e
 	case http.StatusNotFound:
 		return platformerrors.NewNoEncontrado("bff: %s: no encontrado aguas abajo", op)
 	case http.StatusConflict:
