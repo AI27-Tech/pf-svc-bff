@@ -322,13 +322,21 @@ func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
 		}
 	}
 	fake := &fakeMensajeria{caso: &msgclient.CasoEmergencia{Id: uuid.MustParse(emerID), Estado: msgclient.EstadoEmergenciaAbierta}}
+	// Un viaje no terminal pero fuera de EN_TRANSITO tampoco admite la activación.
 	h := NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(opclient.SOLICITADO)})
 	rec := peticionEmergencia(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x",
+		bffclient.ActivarEmergenciaInternoEntrada{ActivacionId: uuid.New()}, "Bearer t", viajeID, "")
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "viaje_no_admite_emergencia") || fake.bearerRecibido != "" {
+		t.Fatalf("SOLICITADO: status %d cuerpo %s; quiere 409 viaje_no_admite_emergencia sin llamar a mensajeria", rec.Code, rec.Body)
+	}
+
+	h = NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(opclient.ENTRANSITO)})
+	rec = peticionEmergencia(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x",
 		bffclient.ActivarEmergenciaInternoEntrada{ActivacionId: uuid.New()}, "Bearer t", viajeID, "")
 	var out bffclient.EmergenciaViaje
 	decodificarCuerpo(t, rec, &out)
 	if rec.Code != http.StatusCreated || out.Id != uuid.MustParse(emerID) || out.Estado != "abierta" {
-		t.Fatalf("SOLICITADO: status %d fila %+v; quiere 201 con la fila mínima", rec.Code, out)
+		t.Fatalf("EN_TRANSITO: status %d fila %+v; quiere 201 con la fila mínima", rec.Code, out)
 	}
 }
 
