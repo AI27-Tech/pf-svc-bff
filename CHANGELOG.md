@@ -1,4 +1,16 @@
 # CHANGELOG
+## 2026-11-13 17:16 — La emergencia solo se activa con el viaje EN_TRANSITO
+**Para quién:** el portal del cliente y el panel interno. Una llamada directa a `activarEmergenciaCliente` o `activarEmergenciaInterno` ya no puede crear un caso con el viaje en `SOLICITADO`, `ASIGNADO`, `EN_EMBARQUE` u otro estado que no sea `EN_TRANSITO`.
+**Comportamiento:**
+- Las dos activaciones leen el viaje una sola vez. Si es terminal, responden 409 `viaje_en_estado_terminal` (sin cambios, DEC-135 #5). Si no es terminal pero tampoco `EN_TRANSITO`, responden 409 `viaje_no_admite_emergencia`, con el id y el estado del viaje en el mensaje. Ninguna de las dos llama a `mensajeria` cuando falla la guarda.
+- Con el viaje en `EN_TRANSITO` todo sigue igual: 201 al crear y 200 en la reentrega.
+- La regla contradice DEC-027 #8, el ADR 21 y E7-HU-029 (activar en cualquier estado no terminal). Está decidida por el usuario y pendiente de registro como DEC.
+**Cambios:**
+- `internal/agregacion/emergencias.go`: `rechazarViajeTerminal` pasa a `exigirViajeAdmiteEmergencia`. Compara contra `estados.EstadoEnTransito` del paquete generado, sin copiar el literal. Se conserva el `shortcut` de DT-16 (carrera entre la lectura y la activación).
+- `internal/agregacion/emergencia_test.go`: en `TestActivarEmergenciaViajeTerminalEs409`, `SOLICITADO` ahora espera 409 `viaje_no_admite_emergencia` sin llamar a `mensajeria`, y se agrega un caso `EN_TRANSITO` que espera 201.
+- `go.mod` no cambia: sigue en `tracer.40`.
+**Pendiente:** el contrato aún no publica el 409 nuevo (hace falta un tracer posterior; `tracer.41` es del alcance por cliente). El nombre `viaje_no_admite_emergencia` no está confirmado. Al publicar el tracer hay que subir el pin, y `pf-svc-core` (que fija `pf-svc-bff v0.1.21`) necesitará el tag nuevo del `bff`.
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...` y `go test -count=1 ./...` en verde. No se ejecutó `arch-test`.
 
 ## 2026-11-10 14:05 — Administración de usuarios, alcance y organizaciones (tracer.40, E8-T19)
 
