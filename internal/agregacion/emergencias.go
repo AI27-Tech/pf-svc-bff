@@ -16,13 +16,23 @@ import (
 // --- Emergencias del monitoreo por viaje (tracer.37, E8-T18, DEC-135) -------
 // mensajeria revisa el rol (DEC-135 #4); el bff propaga el Bearer, recorta a la
 // fila mínima y rechaza la activación sobre viaje terminal (DEC-135 #5) o fuera
-// de EN_TRANSITO.
+// del recorrido (EN_TRANSITO, EN_DESTINO y EN_DESCARGA).
+
+// admiteEmergencia dice si un estado de viaje permite activar una emergencia: el
+// recorrido, es decir EN_TRANSITO y el bucle de paradas EN_DESTINO y EN_DESCARGA
+// (ADR 19, DEC-013). EN_EMBARQUE queda fuera: es previo al recorrido.
+func admiteEmergencia(estado estados.EstadoViaje) bool {
+	switch estado {
+	case estados.EstadoEnTransito, estados.EstadoEnDestino, estados.EstadoEnDescarga:
+		return true
+	}
+	return false
+}
 
 // rechazarEmergencia lee el viaje (una sola lectura por activación) y
 // devuelve 409 si no admite activar una emergencia. Primero revisa los
 // terminales (409 viaje_en_estado_terminal, DEC-135 #5) y después cualquier
-// estado distinto de EN_TRANSITO (409 viaje_no_admite_emergencia). Deriva ambos
-// del paquete generado (ADR 19); no copia el enum.
+// estado fuera del recorrido (409 viaje_no_admite_emergencia).
 //
 // shortcut: hay una carrera entre esta lectura y la activación (DT-16); se
 // retira cuando mensajeria vea el estado del viaje en su propia transacción.
@@ -36,14 +46,14 @@ func (h *Handlers) rechazarEmergencia(r *http.Request, id opclient.Id) error {
 	if estado.EsTerminal() {
 		return platformerrors.NewConflictoCodigo("viaje_en_estado_terminal", "bff: el viaje %s está en %s", id, detalle.Viaje.Estado)
 	}
-	if estado != estados.EstadoEnTransito {
-		return platformerrors.NewConflictoCodigo("viaje_no_admite_emergencia", "bff: el viaje %s está en %s y solo admite emergencia en tránsito", id, detalle.Viaje.Estado)
+	if !admiteEmergencia(estado) {
+		return platformerrors.NewConflictoCodigo("viaje_no_admite_emergencia", "bff: el viaje %s está en %s y solo admite emergencia en tránsito, en destino o en descarga", id, detalle.Viaje.Estado)
 	}
 	return nil
 }
 
 // activar comparte la regla de las dos activaciones (cliente y monitoreo):
-// viaje que no está EN_TRANSITO → 409; si no, reenvía y devuelve 201 nuevo o 200
+// viaje fuera del recorrido → 409; si no, reenvía y devuelve 201 nuevo o 200
 // reentrega.
 func (h *Handlers) activar(r *http.Request, id opclient.Id, activacion msgclient.Id) (*msgclient.CasoEmergencia, int, error) {
 	if err := h.rechazarEmergencia(r, id); err != nil {

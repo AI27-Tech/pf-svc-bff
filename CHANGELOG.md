@@ -1,4 +1,13 @@
 # CHANGELOG
+## 2026-11-13 18:10 — La emergencia también se admite en EN_DESTINO y EN_DESCARGA
+**Para quién:** el portal del cliente y el panel interno. Corrección de la regla anterior: la emergencia se puede activar durante todo el recorrido del viaje, no solo en `EN_TRANSITO`.
+**Comportamiento:**
+- Las dos activaciones admiten `EN_TRANSITO`, `EN_DESTINO` y `EN_DESCARGA` (bucle de paradas, ADR 19 y DEC-013). `EN_EMBARQUE` queda fuera: es previo al recorrido y solo sale hacia `EN_TRANSITO`. Cualquier otro estado no terminal responde 409 `viaje_no_admite_emergencia`; los terminales siguen en 409 `viaje_en_estado_terminal`.
+- El mensaje del 409 nombra los tres estados permitidos.
+**Cambios:**
+- `internal/agregacion/emergencias.go`: nueva `admiteEmergencia`, que compara contra `estados.EstadoEnTransito`, `EstadoEnDestino` y `EstadoEnDescarga` del paquete generado. `rechazarEmergencia` la usa en lugar de comparar solo con `EN_TRANSITO`.
+- `internal/agregacion/emergencia_test.go`: `EN_EMBARQUE` espera 409 sin llamar a `mensajeria`; `EN_TRANSITO`, `EN_DESTINO` y `EN_DESCARGA` esperan 201.
+**Verificación:** `gofmt`, `go vet`, `go test -count=1 ./...` y `arch-test@v0.1.1` en verde.
 ## 2026-11-13 17:16 — La emergencia solo se activa con el viaje EN_TRANSITO
 **Para quién:** el portal del cliente y el panel interno. Una llamada directa a `activarEmergenciaCliente` o `activarEmergenciaInterno` ya no puede crear un caso con el viaje en `SOLICITADO`, `ASIGNADO`, `EN_EMBARQUE` u otro estado que no sea `EN_TRANSITO`.
 **Comportamiento:**
