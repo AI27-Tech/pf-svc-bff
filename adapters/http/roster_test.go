@@ -77,6 +77,53 @@ func TestUnidades409ConservanCodigoPorHTTP(t *testing.T) {
 	}
 }
 
+// TestModificarUnidadClienteIdPorHTTP (DEC-149 #2 y #13): por HTTP, la
+// propiedad ausente no llega a operacion (no toca el cliente), `null` llega
+// como null (lo quita) y un id llega como ese id. El resto del cuerpo viaja.
+func TestModificarUnidadClienteIdPorHTTP(t *testing.T) {
+	unidad, cliente := uuid.NewString(), uuid.NewString()
+	casos := []struct {
+		nombre, cuerpo string
+		presente       bool
+		valor          any
+	}{
+		{"ausente", `{"activa":true}`, false, nil},
+		{"null", `{"cliente_id":null,"activa":true}`, true, nil},
+		{"id", `{"cliente_id":"` + cliente + `","activa":true}`, true, cliente},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			var recibido map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodPatch {
+					_ = json.NewDecoder(r.Body).Decode(&recibido) // doble de prueba: un cuerpo ilegible deja el mapa vacío y la prueba falla
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"`+unidad+`","vehiculo_id":"`+uuid.NewString()+`","custodios_ids":[],"tipo":"patrulla","activa":true,"cliente_id":null}`)
+			}))
+			defer srv.Close()
+			op, err := NewOperacionHTTP(srv.URL, srv.Client())
+			if err != nil {
+				t.Fatalf("NewOperacionHTTP: %v", err)
+			}
+			cat, _ := NewCatalogosHTTP(srv.URL, srv.Client())
+			h := agregacion.NewHandlers(agregacion.Deps{Operacion: op, Catalogos: cat})
+
+			rec := servirBff(h.ModificarUnidad, http.MethodPatch, "/api/v1/unidades/"+unidad, c.cuerpo, "jefe_operativo", unidad)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, cuerpo %s", rec.Code, rec.Body)
+			}
+			v, presente := recibido["cliente_id"]
+			if presente != c.presente || v != c.valor {
+				t.Errorf("cliente_id aguas abajo: presente %v valor %v; se esperaba %v %v (cuerpo %v)", presente, v, c.presente, c.valor, recibido)
+			}
+			if recibido["activa"] != true {
+				t.Errorf("activa no viajó: %v", recibido)
+			}
+		})
+	}
+}
+
 // TestCrearVehiculoNoReenviaClienteId: la flota es de AI27 (DEC-143). Aunque el
 // llamante mande cliente_id, el cuerpo que llega a catalogos por HTTP no lo
 // lleva; el resto del alta viaja completo.

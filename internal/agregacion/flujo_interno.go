@@ -316,6 +316,7 @@ func (h *Handlers) unidadLegible(ctx context.Context, bearer string, u opclient.
 		VehiculoId:   u.VehiculoId,
 		CustodiosIds: u.CustodiosIds,
 		Activa:       u.Activa,
+		ClienteId:    u.ClienteId,
 	}
 	if u.Tipo != nil {
 		t := bffclient.UnidadTipo(*u.Tipo)
@@ -426,11 +427,8 @@ func (h *Handlers) GuardarFicha(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, platformerrors.NewValidacion("bff: guardarFicha: cuerpo de la peticion invalido: %v", err))
 		return
 	}
-	if cuerpo.Tracto == nil {
-		var props map[string]json.RawMessage
-		if json.Unmarshal(raw, &props) == nil && string(bytes.TrimSpace(props["tracto"])) == "null" {
-			cuerpo.Tracto = &opclient.Tracto{}
-		}
+	if cuerpo.Tracto == nil && campoNulo(raw, "tracto") {
+		cuerpo.Tracto = &opclient.Tracto{}
 	}
 	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
 	ficha, err := h.deps.Operacion.GuardarFicha(ctx, id, cuerpo)

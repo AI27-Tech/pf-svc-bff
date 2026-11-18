@@ -160,6 +160,57 @@ func TestUnidadLegibleEnCrearObtenerModificar(t *testing.T) {
 	}
 }
 
+// TestUnidadClienteId (DEC-149 #2 y #13): la unidad legible lleva el cliente
+// al que sirve, el alta lo reenvía, y en la modificación `"cliente_id": null`
+// llega al puerto como &uuid.Nil (quitar), la propiedad ausente como nil (no
+// tocar) y un id como ese id.
+func TestUnidadClienteId(t *testing.T) {
+	cliente := uuid.New()
+	u, cat := rosterLegible()
+	u.ClienteId = &cliente
+	f := &fakeOperacion{unidad: u}
+	h := NewHandlers(Deps{Operacion: f, Catalogos: cat})
+
+	rec := peticionRol(t, h.ObtenerUnidad, http.MethodGet, "/api/v1/unidades", u.Id.String(), "", "jefe_operativo")
+	var got bffclient.Unidad
+	decodificarCuerpo(t, rec, &got)
+	if got.ClienteId == nil || *got.ClienteId != cliente {
+		t.Errorf("obtener: cliente_id = %v, se esperaba %s", got.ClienteId, cliente)
+	}
+	f.unidades = &opclient.PaginaUnidades{Items: []opclient.Unidad{*u}}
+	rec = peticionRol(t, h.ListarUnidades, http.MethodGet, "/api/v1/unidades", "", "", "jefe_operativo")
+	var pag bffclient.PaginaUnidades
+	decodificarCuerpo(t, rec, &pag)
+	if len(pag.Items) != 1 || pag.Items[0].ClienteId == nil || *pag.Items[0].ClienteId != cliente {
+		t.Errorf("listar: items = %+v, se esperaba cliente_id %s", pag.Items, cliente)
+	}
+	rec = peticionRol(t, h.CrearUnidad, http.MethodPost, "/api/v1/unidades", "",
+		`{"vehiculo_id":"`+uuid.NewString()+`","custodios_ids":["`+uuid.NewString()+`"],"cliente_id":"`+cliente.String()+`"}`, "jefe_operativo")
+	if e := f.flujoRecibio.(opclient.UnidadEntrada); rec.Code != http.StatusCreated || e.ClienteId == nil || *e.ClienteId != cliente {
+		t.Errorf("crear: status %d, reenvió %+v", rec.Code, e)
+	}
+
+	for _, c := range []struct {
+		nombre, cuerpo string
+		want           *uuid.UUID
+	}{
+		{"null quita", `{"cliente_id":null}`, &uuid.Nil},
+		{"ausente no toca", `{"activa":true}`, nil},
+		{"id fija", `{"cliente_id":"` + cliente.String() + `"}`, &cliente},
+	} {
+		t.Run(c.nombre, func(t *testing.T) {
+			rec := peticionRol(t, h.ModificarUnidad, http.MethodPatch, "/api/v1/unidades", u.Id.String(), c.cuerpo, "jefe_operativo")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+			}
+			m := f.flujoRecibio.(opclient.UnidadModificacion)
+			if (m.ClienteId == nil) != (c.want == nil) || (c.want != nil && *m.ClienteId != *c.want) {
+				t.Errorf("cliente_id reenviado = %v, se esperaba %v", m.ClienteId, c.want)
+			}
+		})
+	}
+}
+
 // TestUnidadesPropaganConflictoConCodigo: los tres 409 del roster salen con su
 // codigo y no se compone nada después.
 func TestUnidadesPropaganConflictoConCodigo(t *testing.T) {
