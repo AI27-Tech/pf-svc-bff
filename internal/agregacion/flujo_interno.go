@@ -41,10 +41,12 @@ func (h *Handlers) viajeInterno(w http.ResponseWriter, r *http.Request, op strin
 
 // ObtenerViajeInterno delega en operacion.obtenerViaje y devuelve el detalle
 // interno (estado canónico + condiciones), no la vista de seguimiento del
-// cliente. Ruta protegida, solo Interna.
+// cliente. Ruta protegida, solo Interna. `ejecutivo` y `reaccion` reciben 403
+// sin llegar a operacion (DEC-149 #16); fuera de alcance, el 404 de operacion
+// se propaga.
 func (h *Handlers) ObtenerViajeInterno(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.viajeInterno(w, r, "obtenerViajeInterno")
-	if !ok {
+	if !ok || rechazarSinViajes(w, r, "obtenerViajeInterno") {
 		return
 	}
 	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
@@ -316,6 +318,7 @@ func (h *Handlers) unidadLegible(ctx context.Context, bearer string, u opclient.
 		VehiculoId:   u.VehiculoId,
 		CustodiosIds: u.CustodiosIds,
 		Activa:       u.Activa,
+		ClienteId:    u.ClienteId,
 	}
 	if u.Tipo != nil {
 		t := bffclient.UnidadTipo(*u.Tipo)
@@ -426,11 +429,8 @@ func (h *Handlers) GuardarFicha(w http.ResponseWriter, r *http.Request) {
 		escribirError(w, platformerrors.NewValidacion("bff: guardarFicha: cuerpo de la peticion invalido: %v", err))
 		return
 	}
-	if cuerpo.Tracto == nil {
-		var props map[string]json.RawMessage
-		if json.Unmarshal(raw, &props) == nil && string(bytes.TrimSpace(props["tracto"])) == "null" {
-			cuerpo.Tracto = &opclient.Tracto{}
-		}
+	if cuerpo.Tracto == nil && campoNulo(raw, "tracto") {
+		cuerpo.Tracto = &opclient.Tracto{}
 	}
 	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
 	ficha, err := h.deps.Operacion.GuardarFicha(ctx, id, cuerpo)

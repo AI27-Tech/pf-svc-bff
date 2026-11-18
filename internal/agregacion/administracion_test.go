@@ -116,8 +116,17 @@ func (g *gobiernoFake) ObtenerAlcanceSujeto(ctx context.Context, _ idclient.Id) 
 	if g.errGob != nil {
 		return nil, g.errGob
 	}
-	u := uuid.New()
-	return &idclient.AlcanceSujeto{UnidadesIds: []idclient.Id{u}, SubordinadosIds: []idclient.Id{}, UnidadesEfectivasIds: []idclient.Id{u}}, nil
+	u, c, sub := uuid.New(), uuid.New(), uuid.New()
+	return &idclient.AlcanceSujeto{
+		UnidadesIds: []idclient.Id{u}, SubordinadosIds: []idclient.Id{}, UnidadesEfectivasIds: []idclient.Id{u},
+		ClientesIds: []idclient.Id{c}, ClientesEfectivosIds: []idclient.Id{c, sub},
+	}, nil
+}
+
+func (g *gobiernoFake) FijarClientesSujeto(ctx context.Context, _ idclient.Id, body idclient.ClientesSujetoEntrada) error {
+	g.anotar(ctx, "FijarClientesSujeto")
+	g.recibio = body
+	return g.errGob
 }
 
 func (g *gobiernoFake) FijarUnidadesSujeto(ctx context.Context, _ idclient.Id, body idclient.UnidadesSujetoEntrada) error {
@@ -330,6 +339,7 @@ func opsAdministracion() []opAdmin {
 		{"revocarSesionesSujeto", http.MethodPost, "/api/v1/sujetos/" + sujeto + "/revocaciones", `{"motivo":"equipo perdido"}`, sujeto, func(h *Handlers) http.HandlerFunc { return h.RevocarSesionesSujeto }},
 		{"obtenerAlcanceSujeto", http.MethodGet, "/api/v1/sujetos/" + sujeto + "/alcance", "", sujeto, func(h *Handlers) http.HandlerFunc { return h.ObtenerAlcanceSujeto }},
 		{"fijarUnidadesSujeto", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/alcance/unidades", `{"unidades_ids":[]}`, sujeto, func(h *Handlers) http.HandlerFunc { return h.FijarUnidadesSujeto }},
+		{"fijarClientesSujeto", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/alcance/clientes", `{"clientes_ids":[]}`, sujeto, func(h *Handlers) http.HandlerFunc { return h.FijarClientesSujeto }},
 		{"fijarSubordinadosSujeto", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/alcance/subordinados", `{"sujetos_ids":[]}`, sujeto, func(h *Handlers) http.HandlerFunc { return h.FijarSubordinadosSujeto }},
 		{"listarOrganizaciones", http.MethodGet, "/api/v1/organizaciones", "", "", func(h *Handlers) http.HandlerFunc { return h.ListarOrganizaciones }},
 		{"crearOrganizacion", http.MethodPost, "/api/v1/organizaciones", `{"nombre":"Nueva","correo":"a@nueva.mx","telefono":"55"}`, "", func(h *Handlers) http.HandlerFunc { return h.CrearOrganizacion }},
@@ -339,11 +349,11 @@ func opsAdministracion() []opAdmin {
 }
 
 // TestAdministracionPermisos: el administrador pasa en todas; el Jefe
-// Operativo solo en "mis unidades", el alcance y listarSujetos con
+// Operativo solo en "mis clientes", "mis unidades", el alcance y listarSujetos con
 // rol=monitorista; cualquier otro rol interno y el Cliente reciben 403 sin que
 // el bff toque ningún puerto.
 func TestAdministracionPermisos(t *testing.T) {
-	permitidasJefe := map[string]bool{"fijarUnidadesSujeto": true, "obtenerAlcanceSujeto": true, "listarSujetos?rol=monitorista": true}
+	permitidasJefe := map[string]bool{"fijarClientesSujeto": true, "fijarUnidadesSujeto": true, "obtenerAlcanceSujeto": true, "listarSujetos?rol=monitorista": true}
 	for _, rol := range roles.Todos {
 		for _, op := range opsAdministracion() {
 			t.Run(string(rol)+"/"+op.nombre, func(t *testing.T) {
@@ -606,7 +616,65 @@ func TestFijarUnidadesSujetoValidaRoster(t *testing.T) {
 	}
 }
 
-// TestObtenerAlcanceSujetoEspejo: el alcance sale tal cual de identidad.
+// TestFijarClientesSujetoValidaCatalogos (DEC-149 #21): un cliente que no está
+// en catalogos o que está desactivado es 400, nombra al cliente y no llega a
+// identidad; con todos activos, identidad recibe el conjunto tal cual, en una
+// sola lectura por lote a catalogos.
+func TestFijarClientesSujetoValidaCatalogos(t *testing.T) {
+	activo, inactivo, fantasma := orgActiva.Id, orgInactiva.Id, uuid.New()
+	cuerpo := func(ids ...uuid.UUID) string {
+		b, _ := json.Marshal(bffclient.ClientesSujetoEntrada{ClientesIds: ids})
+		return string(b)
+	}
+	nuevo := func() *mundo {
+		m := nuevoMundo()
+		m.cat.clientes[inactivo] = &catclient.Cliente{Id: inactivo, Nombre: "Vieja", Estado: catclient.ClienteEstadoInactivo}
+		return m
+	}
+	for _, c := range []struct {
+		nombre string
+		ids    []uuid.UUID
+		malo   uuid.UUID
+	}{
+		{"inexistente", []uuid.UUID{activo, fantasma}, fantasma},
+		{"desactivado", []uuid.UUID{inactivo, activo}, inactivo},
+	} {
+		t.Run(c.nombre, func(t *testing.T) {
+			m := nuevo()
+			rec := pedir(m.h.FijarClientesSujeto, http.MethodPut, "/", cuerpo(c.ids...), uuid.NewString(), claimsRol(roles.RolJefeOperativo))
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), c.malo.String()) {
+				t.Fatalf("status = %d, cuerpo %s; se esperaba 400 que nombre al cliente", rec.Code, rec.Body)
+			}
+			if len(m.id.llamadas) != 0 {
+				t.Fatalf("con un cliente %s no se llama a identidad: %v", c.nombre, m.id.llamadas)
+			}
+		})
+	}
+
+	m := nuevo()
+	if rec := pedir(m.h.FijarClientesSujeto, http.MethodPut, "/", `{}`, uuid.NewString(), claimsRol(roles.RolJefeOperativo)); rec.Code != http.StatusBadRequest {
+		t.Errorf("sin clientes_ids: status = %d, se esperaba 400", rec.Code)
+	}
+	sujeto := uuid.NewString()
+	rec := pedir(m.h.FijarClientesSujeto, http.MethodPut, "/api/v1/sujetos/"+sujeto+"/alcance/clientes", cuerpo(activo), sujeto, claimsRol(roles.RolAdministrador))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	if got := m.id.recibio.(idclient.ClientesSujetoEntrada).ClientesIds; !slices.Equal(got, []idclient.Id{activo}) {
+		t.Errorf("clientes reenviados = %v", got)
+	}
+	if len(m.cat.loteRecibido) != 1 || !slices.Equal(m.cat.loteRecibido[0], []catclient.Id{activo}) {
+		t.Errorf("lecturas a catalogos = %v, se esperaba un solo lote con el cliente", m.cat.loteRecibido)
+	}
+	// Vaciar la lista no consulta catalogos.
+	m = nuevo()
+	if rec := pedir(m.h.FijarClientesSujeto, http.MethodPut, "/", `{"clientes_ids":[]}`, sujeto, claimsRol(roles.RolJefeOperativo)); rec.Code != http.StatusNoContent || len(m.cat.loteRecibido) != 0 {
+		t.Errorf("lista vacía: status = %d, lotes %v", rec.Code, m.cat.loteRecibido)
+	}
+}
+
+// TestObtenerAlcanceSujetoEspejo: el alcance sale tal cual de identidad,
+// clientes (DEC-149 #18) y unidades deprecadas incluidos.
 func TestObtenerAlcanceSujetoEspejo(t *testing.T) {
 	m := nuevoMundo()
 	rec := pedir(m.h.ObtenerAlcanceSujeto, http.MethodGet, "/", "", uuid.NewString(), claimsRol(roles.RolJefeOperativo))
@@ -614,6 +682,9 @@ func TestObtenerAlcanceSujetoEspejo(t *testing.T) {
 	decodificarCuerpo(t, rec, &a)
 	if rec.Code != http.StatusOK || len(a.UnidadesIds) != 1 || a.UnidadesEfectivasIds[0] != a.UnidadesIds[0] || a.SubordinadosIds == nil {
 		t.Fatalf("status = %d, alcance %+v", rec.Code, a)
+	}
+	if len(a.ClientesIds) != 1 || len(a.ClientesEfectivosIds) != 2 || a.ClientesEfectivosIds[0] != a.ClientesIds[0] {
+		t.Fatalf("clientes del alcance = %v / %v, se esperaba 1 propio y 2 efectivos", a.ClientesIds, a.ClientesEfectivosIds)
 	}
 }
 

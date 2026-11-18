@@ -1,7 +1,9 @@
 package agregacion
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
@@ -12,6 +14,7 @@ import (
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
+	"github.com/google/uuid"
 )
 
 // --- /roster y vehículos y custodios de /catalogos (tracer.39, E8-T21) -------
@@ -95,18 +98,37 @@ func (h *Handlers) ObtenerUnidad(w http.ResponseWriter, r *http.Request) {
 	escribirJSON(w, http.StatusOK, legible)
 }
 
+// campoNulo dice si el objeto JSON raw trae la propiedad campo con valor null.
+// El tipo generado no distingue null de ausente en un puntero sin omitempty.
+func campoNulo(raw []byte, campo string) bool {
+	var props map[string]json.RawMessage
+	return json.Unmarshal(raw, &props) == nil && string(bytes.TrimSpace(props[campo])) == "null"
+}
+
 // ModificarUnidad delega en operacion.modificarUnidad (incluye activar y
 // desactivar) y responde la unidad legible. Los 409 (exclusividad,
-// unidad_con_reserva_vigente) llegan con su codigo.
+// unidad_con_reserva_vigente) llegan con su codigo. `"cliente_id": null` quita
+// el cliente y la propiedad ausente no lo toca (DEC-149 #2 y #13): el null viaja
+// al puerto como &uuid.Nil y la ausencia como nil, la convención de
+// operacion.Consultas().ModificarUnidad.
 func (h *Handlers) ModificarUnidad(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.viajeInterno(w, r, "modificarUnidad")
 	if !ok {
 		return
 	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		escribirError(w, platformerrors.NewValidacion("bff: modificarUnidad: cuerpo de la peticion invalido: %v", err))
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
 	var cuerpo bffclient.UnidadModificacion
 	if err := decodificarEstricto(r, &cuerpo); err != nil {
 		escribirError(w, err)
 		return
+	}
+	if cuerpo.ClienteId == nil && campoNulo(raw, "cliente_id") {
+		cuerpo.ClienteId = &uuid.Nil
 	}
 	bearer := r.Header.Get("Authorization")
 	ctx := tokenctx.Con(r.Context(), bearer)

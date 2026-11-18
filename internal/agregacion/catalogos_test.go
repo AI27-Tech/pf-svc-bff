@@ -24,6 +24,8 @@ type fakeCatalogos struct {
 	custodios map[catclient.Id]*catclient.Custodio
 	// errVehiculo, si no es nil, lo devuelve ObtenerVehiculo (catalogos caído).
 	errVehiculo error
+	// lotesVehiculos registra cada lectura por lote de vehículos (ids).
+	lotesVehiculos [][]catclient.Id
 
 	// Catálogo de GPS (E8-T12): respuesta y params recibidos.
 	gps        *catclient.PaginaGps

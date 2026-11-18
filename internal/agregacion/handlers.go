@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	idclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/identidad"
 	msgclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/mensajeria"
 	opclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/operacion"
+	"github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/roles"
 	"github.com/AI27-Tech/pf-pkg-platform-go/auth"
 	platformerrors "github.com/AI27-Tech/pf-pkg-platform-go/errors"
 	"github.com/AI27-Tech/pf-svc-bff/internal/autorizacion"
@@ -121,13 +123,36 @@ func (h *Handlers) CrearViaje(w http.ResponseWriter, r *http.Request) {
 	escribirJSON(w, http.StatusCreated, viaje)
 }
 
-// ListarViajes delega en operacion.listarViajes. El tenant y el rol salen del
-// token (P9, P10); el alcance por unidad/cliente se resuelve en servidor, no
-// viaja en el token (DEC-053). Ruta protegida.
+// rolesSinViajes no listan viajes ni leen su detalle interno (DEC-149 #16):
+// Reacción ve el viaje de su caso por obtenerEmergencia y el Ejecutivo pide lo
+// operativo por el chat interno.
+var rolesSinViajes = map[roles.Rol]bool{
+	roles.RolEjecutivo: true,
+	roles.RolReaccion:  true,
+}
+
+// rechazarSinViajes escribe 403 y devuelve true si el rol del token está en
+// rolesSinViajes. Lo aplica el bff porque operacion deja a Reacción leer
+// obtenerViaje para componer el detalle de su caso.
+func rechazarSinViajes(w http.ResponseWriter, r *http.Request, op string) bool {
+	c := autorizacion.ClaimsDe(r.Context())
+	if c == nil || !rolesSinViajes[roles.Rol(c.Rol)] {
+		return false
+	}
+	escribirError(w, platformerrors.NewProhibido("bff: %s: el rol %q no lee viajes", op, c.Rol))
+	return true
+}
+
+// ListarViajes delega en operacion.listarViajes, que filtra por el alcance del
+// llamante (DEC-149): fuera de alcance el viaje no aparece. El tenant y el rol
+// salen del token y el alcance se resuelve en servidor (DEC-053). `ejecutivo` y
+// `reaccion` reciben 403 sin llegar a operacion (DEC-149 #16). Cada fila sale
+// como ViajeResumen; para la audiencia Interno lleva además el cliente y la
+// escolta vigente (DEC-149 #11), y para el Cliente no (DEC-149 #14).
 func (h *Handlers) ListarViajes(w http.ResponseWriter, r *http.Request) {
-	// En fase (a) se reenvian el cursor y el filtro `estado`; los filtros de
-	// alcance los aplica operacion a partir del contexto autenticado que propaga
-	// el adaptador.
+	if rechazarSinViajes(w, r, "listarViajes") {
+		return
+	}
 	var params opclient.ListarViajesParams
 	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
 		c := opclient.Cursor(cursor)
@@ -137,13 +162,87 @@ func (h *Handlers) ListarViajes(w http.ResponseWriter, r *http.Request) {
 		e := opclient.EstadoViaje(estado)
 		params.Estado = &e
 	}
-	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
+	bearer := r.Header.Get("Authorization")
+	ctx := tokenctx.Con(r.Context(), bearer)
 	pagina, err := h.deps.Operacion.ListarViajes(ctx, params)
 	if err != nil {
 		escribirError(w, err)
 		return
 	}
-	escribirJSON(w, http.StatusOK, pagina)
+	out := bffclient.PaginaViajesResumen{Items: make([]bffclient.ViajeResumen, 0, len(pagina.Items)), CursorSiguiente: pagina.CursorSiguiente}
+	for _, v := range pagina.Items {
+		out.Items = append(out.Items, bffclient.ViajeResumen{Id: v.Id, Estado: string(v.Estado), Origen: v.Origen})
+	}
+	if c := autorizacion.ClaimsDe(r.Context()); c != nil && c.Audiencia == auth.AudienciaInterno {
+		if err := h.componerResumenInterno(ctx, bearer, pagina.Items, out.Items); err != nil {
+			escribirError(w, err)
+			return
+		}
+	}
+	escribirJSON(w, http.StatusOK, out)
+}
+
+// componerResumenInterno llena en items (la misma página, en el mismo orden que
+// viajes) el cliente con su nombre y las unidades de la escolta vigente con su
+// económico. Nombres y económicos salen de catalogos en una lectura por lote
+// cada uno. Un cliente o vehículo que ya no está en el catálogo sale solo con su
+// id; un viaje sin escolta, con unidades vacío.
+//
+// shortcut: una lectura de la escolta por viaje de la página (N+1 acotado a la
+// página, en proceso dentro de core) porque operacion no expone la escolta por
+// lote; pedirla por lote en el contrato si la página crece.
+func (h *Handlers) componerResumenInterno(ctx context.Context, bearer string, viajes []opclient.Viaje, items []bffclient.ViajeResumen) error {
+	escoltas := make([][]opclient.Unidad, len(viajes))
+	var clientesIDs, vehiculosIDs []catclient.Id
+	for i, v := range viajes {
+		if v.ClienteId != nil && !slices.Contains(clientesIDs, *v.ClienteId) {
+			clientesIDs = append(clientesIDs, *v.ClienteId)
+		}
+		e, err := h.deps.Operacion.ObtenerAsignacion(ctx, v.Id)
+		// Un 404 es un viaje que salió del alcance entre la lista y esta lectura:
+		// sale sin escolta en vez de tumbar la página.
+		if platformerrors.AsCategory(err) == platformerrors.CategoryNoEncontrado {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		escoltas[i] = e.Unidades
+		for _, u := range e.Unidades {
+			if !slices.Contains(vehiculosIDs, u.VehiculoId) {
+				vehiculosIDs = append(vehiculosIDs, u.VehiculoId)
+			}
+		}
+	}
+	clientes, err := h.clientesPorLote(ctx, bearer, clientesIDs)
+	if err != nil {
+		return err
+	}
+	economicos := map[catclient.Id]*string{}
+	if len(vehiculosIDs) > 0 {
+		p, err := h.deps.Catalogos.ListarVehiculos(ctx, bearer, catclient.ListarVehiculosParams{Ids: &vehiculosIDs})
+		if err != nil {
+			return err
+		}
+		for _, v := range p.Items {
+			economicos[v.Id] = v.Economico
+		}
+	}
+	for i, v := range viajes {
+		if v.ClienteId != nil {
+			c := bffclient.ClienteViajeResumen{Id: *v.ClienteId}
+			if cl, ok := clientes[*v.ClienteId]; ok {
+				c.Nombre = &cl.Nombre
+			}
+			items[i].Cliente = &c
+		}
+		unidades := make([]bffclient.UnidadViajeResumen, 0, len(escoltas[i]))
+		for _, u := range escoltas[i] {
+			unidades = append(unidades, bffclient.UnidadViajeResumen{Id: u.Id, Economico: economicos[u.VehiculoId]})
+		}
+		items[i].Unidades = &unidades
+	}
+	return nil
 }
 
 // ListarClientes delega en catalogos.listarClientes para poblar el selector de

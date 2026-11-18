@@ -12,6 +12,7 @@ import (
 	bff "github.com/AI27-Tech/pf-svc-bff"
 	"github.com/AI27-Tech/pf-svc-bff/internal/errores"
 	"github.com/AI27-Tech/pf-svc-bff/internal/tokenctx"
+	"github.com/google/uuid"
 )
 
 // OperacionHTTP implementa bff.OperacionPort con el cliente generado de
@@ -408,12 +409,19 @@ func (a *OperacionHTTP) ObtenerUnidad(ctx context.Context, id opclient.Id) (*opc
 }
 
 // ModificarUnidad reenvia a operacion.modificarUnidad. Propaga el codigo del
-// 409 (exclusividad o unidad_con_reserva_vigente).
+// 409 (exclusividad o unidad_con_reserva_vigente). El cuerpo se arma a mano
+// porque el tipo generado serializa ClienteId nil como `"cliente_id": null`,
+// que operacion lee como quitar el cliente: aquí nil omite la propiedad (no
+// tocar) y &uuid.Nil viaja como null (quitar), la misma regla que el puerto.
 func (a *OperacionHTTP) ModificarUnidad(ctx context.Context, id opclient.Id, body opclient.UnidadModificacion) (*opclient.Unidad, error) {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
 	defer cancel()
 
-	resp, err := a.cli.ModificarUnidadWithResponse(ctx, id, body, conBearerOperacion(ctx))
+	raw, err := cuerpoUnidadModificacion(body)
+	if err != nil {
+		return nil, errores.DeTransporte("ModificarUnidad", err)
+	}
+	resp, err := a.cli.ModificarUnidadWithBodyWithResponse(ctx, id, "application/json", bytes.NewReader(raw), conBearerOperacion(ctx))
 	if err != nil {
 		return nil, errores.DeTransporte("ModificarUnidad", err)
 	}
@@ -421,6 +429,26 @@ func (a *OperacionHTTP) ModificarUnidad(ctx context.Context, id opclient.Id, bod
 		return nil, errores.DeRespuesta("ModificarUnidad", resp.StatusCode(), codigo409(resp.JSON409))
 	}
 	return resp.JSON200, nil
+}
+
+// cuerpoUnidadModificacion serializa la modificación respetando ausente != null
+// en cliente_id (ver ModificarUnidad). Los demás campos salen del tipo generado.
+func cuerpoUnidadModificacion(body opclient.UnidadModificacion) ([]byte, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	var props map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &props); err != nil {
+		return nil, err
+	}
+	switch {
+	case body.ClienteId == nil:
+		delete(props, "cliente_id")
+	case *body.ClienteId == uuid.Nil:
+		props["cliente_id"] = json.RawMessage("null")
+	}
+	return json.Marshal(props)
 }
 
 // CompletarFechaHora reenvia a operacion.completarFechaHora; propaga el codigo
