@@ -93,6 +93,7 @@ var operacionesFaseA = []rutaContrato{
 	{"revocarSesionesSujeto", http.MethodPost, "/api/v1/sujetos/00000000-0000-0000-0000-000000000000/revocaciones", true},
 	{"obtenerAlcanceSujeto", http.MethodGet, "/api/v1/sujetos/00000000-0000-0000-0000-000000000000/alcance", true},
 	{"fijarUnidadesSujeto", http.MethodPut, "/api/v1/sujetos/00000000-0000-0000-0000-000000000000/alcance/unidades", true},
+	{"fijarClientesSujeto", http.MethodPut, "/api/v1/sujetos/00000000-0000-0000-0000-000000000000/alcance/clientes", true},
 	{"fijarSubordinadosSujeto", http.MethodPut, "/api/v1/sujetos/00000000-0000-0000-0000-000000000000/alcance/subordinados", true},
 	{"listarOrganizaciones", http.MethodGet, "/api/v1/organizaciones", true},
 	{"crearOrganizacion", http.MethodPost, "/api/v1/organizaciones", true},
