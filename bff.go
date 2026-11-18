@@ -225,8 +225,8 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/custodios/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerCustodio)))
 	mux.Handle("PATCH /api/v1/custodios/{id}", protegido(http.HandlerFunc(m.handlers.ActualizarCustodio)))
 	// Administración de usuarios, alcance y organizaciones (tracer.40, E8-T19).
-	// Escribe solo administrador, salvo fijarUnidadesSujeto, que también escribe
-	// jefe_operativo. Usuarios y alcance reenvían a identidad, que conserva sus
+	// Escribe solo administrador, salvo fijarClientesSujeto (y el deprecado
+	// fijarUnidadesSujeto), que también escribe jefe_operativo (DEC-149 #18). Usuarios y alcance reenvían a identidad, que conserva sus
 	// `codigo`; las organizaciones escriben en catalogos y en identidad con el
 	// mismo id (DEC-144 #2).
 	mux.Handle("GET /api/v1/sujetos", protegido(http.HandlerFunc(m.handlers.ListarSujetos)))
@@ -239,6 +239,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/sujetos/{id}/revocaciones", protegido(http.HandlerFunc(m.handlers.RevocarSesionesSujeto)))
 	mux.Handle("GET /api/v1/sujetos/{id}/alcance", protegido(http.HandlerFunc(m.handlers.ObtenerAlcanceSujeto)))
 	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/unidades", protegido(http.HandlerFunc(m.handlers.FijarUnidadesSujeto)))
+	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/clientes", protegido(http.HandlerFunc(m.handlers.FijarClientesSujeto)))
 	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/subordinados", protegido(http.HandlerFunc(m.handlers.FijarSubordinadosSujeto)))
 	mux.Handle("GET /api/v1/organizaciones", protegido(http.HandlerFunc(m.handlers.ListarOrganizaciones)))
 	mux.Handle("POST /api/v1/organizaciones", protegido(http.HandlerFunc(m.handlers.CrearOrganizacion)))

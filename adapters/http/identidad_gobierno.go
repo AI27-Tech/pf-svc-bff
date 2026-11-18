@@ -171,6 +171,18 @@ func (a *IdentidadHTTP) FijarUnidadesSujeto(ctx context.Context, id idclient.Id,
 	return sinCuerpo("FijarUnidadesSujeto", resp.StatusCode(), resp.Body)
 }
 
+// FijarClientesSujeto reenvía a identidad.fijarClientesSujeto (DEC-149 #18).
+func (a *IdentidadHTTP) FijarClientesSujeto(ctx context.Context, id idclient.Id, body idclient.ClientesSujetoEntrada) error {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.FijarClientesSujetoWithResponse(ctx, id, body, conBearerIdentidad(ctx))
+	if err != nil {
+		return errores.DeTransporte("FijarClientesSujeto", err)
+	}
+	return sinCuerpo("FijarClientesSujeto", resp.StatusCode(), resp.Body)
+}
+
 // FijarSubordinadosSujeto reenvía a identidad.fijarSubordinadosSujeto.
 func (a *IdentidadHTTP) FijarSubordinadosSujeto(ctx context.Context, id idclient.Id, body idclient.SubordinadosSujetoEntrada) error {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)

@@ -29,9 +29,10 @@ var rolesAdministracion = map[roles.Rol]bool{
 	roles.RolAdministrador: true,
 }
 
-// rolesMisUnidades también entran a "mis unidades" de un Monitorista: el Jefe
-// Operativo las fija y las lee en /roster (DEC-140 #1, DEC-142 #2).
-var rolesMisUnidades = map[roles.Rol]bool{
+// rolesMisClientes también entran al alcance de un Monitorista: el Jefe
+// Operativo fija y lee "mis clientes" (y el deprecado "mis unidades") en
+// /roster (DEC-140 #1, DEC-149 #18).
+var rolesMisClientes = map[roles.Rol]bool{
 	roles.RolAdministrador: true,
 	roles.RolJefeOperativo: true,
 }
@@ -173,7 +174,7 @@ func (h *Handlers) tenantCliente(ctx context.Context, id idclient.Id) (*idclient
 // las organizaciones se leen por lote. Lee el administrador; el Jefe Operativo
 // solo con rol=monitorista.
 func (h *Handlers) ListarSujetos(w http.ResponseWriter, r *http.Request) {
-	if !h.soloRoles(w, r, "listarSujetos", rolesMisUnidades) {
+	if !h.soloRoles(w, r, "listarSujetos", rolesMisClientes) {
 		return
 	}
 	q := r.URL.Query()
@@ -421,7 +422,7 @@ func (h *Handlers) RevocarSesionesSujeto(w http.ResponseWriter, r *http.Request)
 // un Monitorista lo decide identidad (403), porque el bff no puede leer el rol
 // del objetivo con su token: obtenerSujeto es solo del administrador.
 func (h *Handlers) ObtenerAlcanceSujeto(w http.ResponseWriter, r *http.Request) {
-	id, ok := h.recursoConRol(w, r, "obtenerAlcanceSujeto", rolesMisUnidades)
+	id, ok := h.recursoConRol(w, r, "obtenerAlcanceSujeto", rolesMisClientes)
 	if !ok {
 		return
 	}
@@ -436,9 +437,10 @@ func (h *Handlers) ObtenerAlcanceSujeto(w http.ResponseWriter, r *http.Request) 
 
 // FijarUnidadesSujeto valida contra operacion que cada unidad exista en el
 // roster (identidad no puede: sin FK entre módulos) y delega en
-// identidad.fijarUnidadesSujeto (204).
+// identidad.fijarUnidadesSujeto (204). Deprecada por DEC-149 #18: ya no define
+// el alcance; se conserva hasta que el contrato la retire.
 func (h *Handlers) FijarUnidadesSujeto(w http.ResponseWriter, r *http.Request) {
-	id, ok := h.recursoConRol(w, r, "fijarUnidadesSujeto", rolesMisUnidades)
+	id, ok := h.recursoConRol(w, r, "fijarUnidadesSujeto", rolesMisClientes)
 	if !ok {
 		return
 	}
@@ -471,6 +473,45 @@ func (h *Handlers) FijarUnidadesSujeto(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	responderSinCuerpo(w, h.deps.Identidad.FijarUnidadesSujeto(ctx, id, idclient.UnidadesSujetoEntrada{UnidadesIds: e.UnidadesIds}))
+}
+
+// FijarClientesSujeto valida contra catalogos, en una sola lectura por lote, que
+// cada cliente exista y esté activo (DEC-149 #21; identidad no puede: sin FK
+// entre módulos) y delega en identidad.fijarClientesSujeto (204). Un cliente
+// inexistente o desactivado es 400 y no llega a identidad.
+func (h *Handlers) FijarClientesSujeto(w http.ResponseWriter, r *http.Request) {
+	id, ok := h.recursoConRol(w, r, "fijarClientesSujeto", rolesMisClientes)
+	if !ok {
+		return
+	}
+	var e bffclient.ClientesSujetoEntrada
+	if err := decodificar(r, &e); err != nil {
+		escribirError(w, err)
+		return
+	}
+	// Sin el campo, un nil llegaría como "quitarle todos".
+	if e.ClientesIds == nil {
+		escribirError(w, platformerrors.NewValidacion("bff: fijarClientesSujeto: clientes_ids es obligatorio"))
+		return
+	}
+	ctx, bearer := conToken(r)
+	clientes, err := h.clientesPorLote(ctx, bearer, e.ClientesIds)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	for _, c := range e.ClientesIds {
+		cl, existe := clientes[c]
+		if !existe {
+			escribirError(w, platformerrors.NewValidacion("bff: fijarClientesSujeto: el cliente %s no existe en catalogos", c))
+			return
+		}
+		if cl.Estado != catclient.ClienteEstadoActivo {
+			escribirError(w, platformerrors.NewValidacion("bff: fijarClientesSujeto: el cliente %s esta desactivado", c))
+			return
+		}
+	}
+	responderSinCuerpo(w, h.deps.Identidad.FijarClientesSujeto(ctx, id, idclient.ClientesSujetoEntrada{ClientesIds: e.ClientesIds}))
 }
 
 // FijarSubordinadosSujeto delega en identidad.fijarSubordinadosSujeto (204).
