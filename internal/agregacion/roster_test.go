@@ -55,6 +55,17 @@ func (f *fakeCatalogos) recurso(metodo, bearer string, recibio any) {
 
 func (f *fakeCatalogos) ListarVehiculos(_ context.Context, bearer string, params catclient.ListarVehiculosParams) (*catclient.PaginaVehiculos, error) {
 	f.recurso("ListarVehiculos", bearer, params)
+	if params.Ids != nil {
+		// Lectura por lote: lo que no está en vehiculos se omite, como catalogos.
+		f.lotesVehiculos = append(f.lotesVehiculos, *params.Ids)
+		p := &catclient.PaginaVehiculos{Items: []catclient.Vehiculo{}}
+		for _, id := range *params.Ids {
+			if v, ok := f.vehiculos[id]; ok {
+				p.Items = append(p.Items, *v)
+			}
+		}
+		return p, f.err
+	}
 	return f.paginaVehiculos, f.err
 }
 

@@ -41,10 +41,12 @@ func (h *Handlers) viajeInterno(w http.ResponseWriter, r *http.Request, op strin
 
 // ObtenerViajeInterno delega en operacion.obtenerViaje y devuelve el detalle
 // interno (estado canónico + condiciones), no la vista de seguimiento del
-// cliente. Ruta protegida, solo Interna.
+// cliente. Ruta protegida, solo Interna. `ejecutivo` y `reaccion` reciben 403
+// sin llegar a operacion (DEC-149 #16); fuera de alcance, el 404 de operacion
+// se propaga.
 func (h *Handlers) ObtenerViajeInterno(w http.ResponseWriter, r *http.Request) {
 	id, ok := h.viajeInterno(w, r, "obtenerViajeInterno")
-	if !ok {
+	if !ok || rechazarSinViajes(w, r, "obtenerViajeInterno") {
 		return
 	}
 	ctx := tokenctx.Con(r.Context(), r.Header.Get("Authorization"))
