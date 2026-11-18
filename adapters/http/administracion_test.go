@@ -30,6 +30,7 @@ func TestGobiernoConservaCodigoPorHTTP(t *testing.T) {
 		{http.StatusConflict, "rol_cruza_audiencia", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/rol", `{"rol":"cliente"}`, func(h *agregacion.Handlers) http.HandlerFunc { return h.FijarRolSujeto }},
 		{http.StatusConflict, "ultimo_administrador", http.MethodDelete, "/api/v1/sujetos/" + sujeto, "", func(h *agregacion.Handlers) http.HandlerFunc { return h.DesactivarSujeto }},
 		{http.StatusConflict, "rol_sin_alcance", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/alcance/unidades", `{"unidades_ids":[]}`, func(h *agregacion.Handlers) http.HandlerFunc { return h.FijarUnidadesSujeto }},
+		{http.StatusConflict, "rol_sin_alcance", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/alcance/clientes", `{"clientes_ids":[]}`, func(h *agregacion.Handlers) http.HandlerFunc { return h.FijarClientesSujeto }},
 		{http.StatusConflict, "subordinado_con_superior", http.MethodPut, "/api/v1/sujetos/" + sujeto + "/alcance/subordinados", `{"sujetos_ids":[]}`, func(h *agregacion.Handlers) http.HandlerFunc { return h.FijarSubordinadosSujeto }},
 	}
 	for _, c := range casos {
@@ -57,6 +58,64 @@ func TestGobiernoConservaCodigoPorHTTP(t *testing.T) {
 			}
 			if rec.Code != c.status || e.Codigo != c.codigo {
 				t.Errorf("status %d codigo %q; se esperaba %d %q", rec.Code, e.Codigo, c.status, c.codigo)
+			}
+		})
+	}
+}
+
+// TestFijarClientesSujetoPorHTTP (DEC-149 #21): con catalogos e identidad por
+// HTTP, el bff lee los clientes en un solo lote (`listarClientes?ids`); uno
+// desactivado o ausente del lote es 400 sin llamar a identidad, y con todos
+// activos identidad recibe el PUT con el cuerpo y el Bearer.
+func TestFijarClientesSujetoPorHTTP(t *testing.T) {
+	sujeto, activo, inactivo, fantasma := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	casos := []struct {
+		nombre, ids string
+		status      int
+		aIdentidad  bool
+	}{
+		{"activo", `"` + activo + `"`, http.StatusNoContent, true},
+		{"desactivado", `"` + activo + `","` + inactivo + `"`, http.StatusBadRequest, false},
+		{"inexistente", `"` + fantasma + `"`, http.StatusBadRequest, false},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			var lotes []string
+			var aIdentidad, authz string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/api/v1/clientes" {
+					lotes = append(lotes, r.URL.Query().Get("ids"))
+					_, _ = io.WriteString(w, `{"items":[`+
+						`{"id":"`+activo+`","nombre":"ACME","estado":"activo"},`+
+						`{"id":"`+inactivo+`","nombre":"Vieja","estado":"inactivo"}],"cursor_siguiente":null}`)
+					return
+				}
+				b, _ := io.ReadAll(r.Body)
+				aIdentidad, authz = r.Method+" "+r.URL.Path+" "+string(b), r.Header.Get("Authorization")
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer srv.Close()
+			cat, _ := NewCatalogosHTTP(srv.URL, srv.Client())
+			id, _ := NewIdentidadHTTP(srv.URL, srv.Client())
+			h := agregacion.NewHandlers(agregacion.Deps{Identidad: id, Catalogos: cat})
+
+			rec := servirBff(h.FijarClientesSujeto, http.MethodPut, "/api/v1/sujetos/"+sujeto+"/alcance/clientes", `{"clientes_ids":[`+c.ids+`]}`, "jefe_operativo", sujeto)
+			if rec.Code != c.status {
+				t.Fatalf("status = %d, se esperaba %d; cuerpo %s", rec.Code, c.status, rec.Body)
+			}
+			if len(lotes) != 1 || lotes[0] != strings.ReplaceAll(c.ids, `"`, "") {
+				t.Errorf("lecturas a catalogos = %q, se esperaba un lote con %s", lotes, c.ids)
+			}
+			if !c.aIdentidad {
+				if aIdentidad != "" {
+					t.Errorf("no debía llamar a identidad: %q", aIdentidad)
+				}
+				return
+			}
+			want := "PUT /api/v1/sujetos/" + sujeto + "/alcance/clientes " + `{"clientes_ids":["` + activo + `"]}`
+			if strings.TrimSpace(aIdentidad) != want || authz != "Bearer tok-roster" {
+				t.Errorf("identidad recibió %q con %q; se esperaba %q", aIdentidad, authz, want)
 			}
 		})
 	}

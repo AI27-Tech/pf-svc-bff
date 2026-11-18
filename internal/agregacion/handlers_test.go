@@ -208,9 +208,9 @@ func TestListarViajesReenviaCursorEstadoYDevuelvePagina(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, se esperaba 200; cuerpo: %s", rec.Code, rec.Body.String())
 	}
-	var got opclient.PaginaViajes
+	var got bffclient.PaginaViajesResumen
 	decodificarCuerpo(t, rec, &got)
-	if len(got.Items) != 1 {
+	if len(got.Items) != 1 || got.Items[0].Origen != "A" {
 		t.Errorf("items = %d, se esperaba 1", len(got.Items))
 	}
 	if fakeOp.listarRecibio.Cursor == nil || *fakeOp.listarRecibio.Cursor != "c-42" {
@@ -581,9 +581,13 @@ type fakeOperacion struct {
 	intencion   *opclient.IntencionSubidaAdjunto
 	descargaAdj *opclient.DescargaAdjunto
 
-	// Escolta del detalle de Reacción (E8-T18).
-	escolta    *opclient.EscoltaVigente
-	escoltaErr error
+	// Escolta del detalle de Reacción (E8-T18). escoltas, si no es nil, da la
+	// escolta por viaje (ViajeResumen, DEC-149 #11); asignacionLlamadas cuenta
+	// las lecturas.
+	escolta            *opclient.EscoltaVigente
+	escoltaErr         error
+	escoltas           map[opclient.Id]*opclient.EscoltaVigente
+	asignacionLlamadas int
 
 	// Flujo interno, grupo 2: respuestas de roster, incidencias y ficha.
 	unidades          *opclient.PaginaUnidades
@@ -598,8 +602,12 @@ type fakeOperacion struct {
 }
 
 func (f *fakeOperacion) ObtenerAsignacion(ctx context.Context, id opclient.Id) (*opclient.EscoltaVigente, error) {
+	f.asignacionLlamadas++
 	if f.escoltaErr != nil {
 		return nil, f.escoltaErr
+	}
+	if e, ok := f.escoltas[id]; ok {
+		return e, nil
 	}
 	if f.escolta == nil {
 		return &opclient.EscoltaVigente{ViajeId: id, Unidades: []opclient.Unidad{}}, nil

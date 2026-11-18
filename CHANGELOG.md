@@ -1,4 +1,47 @@
 # CHANGELOG
+## 2026-11-18 14:22 — Alcance del monitoreo por cliente en el bff (tracer.41 y tracer.42, DEC-149)
+**Para quién:** el panel interno (`/roster`, bandeja de viajes, administración) y `pf-svc-core`, que debe cablear `FijarClientesSujeto` en proceso.
+**Comportamiento:**
+- `fijarClientesSujeto` (`PUT /api/v1/sujetos/{id}/alcance/clientes`): escriben `administrador` y `jefe_operativo`; otro rol, 403 sin tocar puertos. El `bff` lee los clientes en un solo lote de `catalogos` (`listarClientes?ids`); uno inexistente o desactivado es 400, nombra al cliente y no llega a `identidad` (DEC-149 #21). Sin `clientes_ids`, 400; la lista vacía no consulta `catalogos`. Los 409 de `identidad` (`rol_sin_alcance`) llegan con su `codigo`. `fijarUnidadesSujeto` sigue igual (deprecada).
+- `obtenerAlcanceSujeto` espeja `clientes_ids` y `clientes_efectivos_ids`.
+- Unidades del roster: `cliente_id` en crear, obtener, modificar y listar. En `modificarUnidad`, `"cliente_id": null` quita el cliente y la propiedad ausente no lo toca. Antes de este cambio, con el tipo generado de `tracer.41`, el adaptador HTTP mandaba `null` en todo PATCH sin el campo y le quitaba el cliente a la unidad.
+- `listarViajes` responde `ViajeResumen` (`id`, `estado`, `origen`). Para la audiencia Interno agrega `cliente` (`id` y `nombre` de `catalogos`, o solo `id` si no está) y `unidades` (`id` y `economico` del vehículo; vacío sin escolta). Para el Cliente omite los dos (DEC-149 #14). La fila ya no trae los campos de `operacion` que no están en `ViajeResumen` (`cliente_id`, `destinos`, `creado_en`, ...); los dos portales solo usan `id`, `estado` y `origen`.
+- `ejecutivo` y `reaccion`: 403 en `listarViajes` y `obtenerViajeInterno`, sin llegar a `operacion` (DEC-149 #16). `obtenerEmergencia` sigue componiendo el viaje del caso con el token de Reacción. Fuera de alcance, el 404 de `operacion` se propaga.
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` `tracer.40` → `tracer.42`. Compiló sin renombrados.
+- `internal/agregacion/ports.go`: `FijarClientesSujeto` en `IdentidadPort`.
+- `internal/agregacion/administracion.go`: handler `FijarClientesSujeto`; `rolesMisUnidades` pasa a `rolesMisClientes`.
+- `internal/agregacion/handlers.go`: `rolesSinViajes`, `rechazarSinViajes`, `ListarViajes` con `componerResumenInterno` (`shortcut`: una lectura de escolta por viaje de la página; clientes y vehículos por lote).
+- `internal/agregacion/flujo_interno.go`: 403 en `ObtenerViajeInterno`; `cliente_id` en la unidad legible; `GuardarFicha` usa `campoNulo`.
+- `internal/agregacion/roster.go`: `campoNulo` y la traducción de `null` a `&uuid.Nil` en `ModificarUnidad`.
+- `adapters/http/identidad_gobierno.go`: `FijarClientesSujeto`.
+- `adapters/http/operacion.go`: `ModificarUnidad` arma el cuerpo con `cuerpoUnidadModificacion` (nil omite, `uuid.Nil` manda null).
+- `bff.go`: ruta `PUT /api/v1/sujetos/{id}/alcance/clientes`.
+- Pruebas: `TestFijarClientesSujetoValidaCatalogos`, `TestObtenerAlcanceSujetoEspejo`, `TestUnidadClienteId`, `TestListarViajesInternoComponeClienteYUnidades`, `TestListarViajesEscoltaFallida`, `TestListarViajesClienteOmiteClienteYUnidades`, `TestEjecutivoYReaccionSinViajes`, `TestReaccionSigueViendoElViajeDeSuCaso`; por HTTP, `TestFijarClientesSujetoPorHTTP`, `TestModificarUnidadClienteIdPorHTTP`, `TestListarViajesInternoPorHTTP`, `TestObtenerViajeInternoFueraDeAlcancePorHTTP` y un caso `rol_sin_alcance` en `TestGobiernoConservaCodigoPorHTTP`; la ruta nueva en `TestRutasMontadasContraContrato`; `fijarClientesSujeto` en `TestAdministracionPermisos`.
+**Verificación:** `gofmt -l .` vacío, `go vet ./...`, `go build ./...`, `go build ./cmd/api`, `go test -count=1 ./...` y `arch-test@v0.1.1` en verde. 11 mutaciones (403 en lista y detalle, rol `reaccion`, audiencia, nombre y económico, 404 de escolta, cliente inexistente y desactivado, null en el handler, cuerpo del adaptador) hacen fallar al menos una prueba cada una.
+**Pendiente fuera de este repo:** `pf-svc-core` implementa `FijarClientesSujeto` en su adaptador en proceso de identidad y sube los pins (hoy en `-d`: contratos `tracer.40`, `bff` `v0.1.21`, `identidad` `v0.1.6`, `operacion` `v0.1.20`; hacen falta contratos `tracer.42`, `identidad` `v0.1.7`, `operacion` `v0.1.21` y el tag del `bff` que salga de este PR).
+
+## 2026-11-13 18:10 — La emergencia también se admite en EN_DESTINO y EN_DESCARGA
+**Para quién:** el portal del cliente y el panel interno. Corrección de la regla anterior: la emergencia se puede activar durante todo el recorrido del viaje, no solo en `EN_TRANSITO`.
+**Comportamiento:**
+- Las dos activaciones admiten `EN_TRANSITO`, `EN_DESTINO` y `EN_DESCARGA` (bucle de paradas, ADR 19 y DEC-013). `EN_EMBARQUE` queda fuera: es previo al recorrido y solo sale hacia `EN_TRANSITO`. Cualquier otro estado no terminal responde 409 `viaje_no_admite_emergencia`; los terminales siguen en 409 `viaje_en_estado_terminal`.
+- El mensaje del 409 nombra los tres estados permitidos.
+**Cambios:**
+- `internal/agregacion/emergencias.go`: nueva `admiteEmergencia`, que compara contra `estados.EstadoEnTransito`, `EstadoEnDestino` y `EstadoEnDescarga` del paquete generado. `rechazarEmergencia` la usa en lugar de comparar solo con `EN_TRANSITO`.
+- `internal/agregacion/emergencia_test.go`: `EN_EMBARQUE` espera 409 sin llamar a `mensajeria`; `EN_TRANSITO`, `EN_DESTINO` y `EN_DESCARGA` esperan 201.
+**Verificación:** `gofmt`, `go vet`, `go test -count=1 ./...` y `arch-test@v0.1.1` en verde.
+## 2026-11-13 17:16 — La emergencia solo se activa con el viaje EN_TRANSITO
+**Para quién:** el portal del cliente y el panel interno. Una llamada directa a `activarEmergenciaCliente` o `activarEmergenciaInterno` ya no puede crear un caso con el viaje en `SOLICITADO`, `ASIGNADO`, `EN_EMBARQUE` u otro estado que no sea `EN_TRANSITO`.
+**Comportamiento:**
+- Las dos activaciones leen el viaje una sola vez. Si es terminal, responden 409 `viaje_en_estado_terminal` (sin cambios, DEC-135 #5). Si no es terminal pero tampoco `EN_TRANSITO`, responden 409 `viaje_no_admite_emergencia`, con el id y el estado del viaje en el mensaje. Ninguna de las dos llama a `mensajeria` cuando falla la guarda.
+- Con el viaje en `EN_TRANSITO` todo sigue igual: 201 al crear y 200 en la reentrega.
+- La regla contradice DEC-027 #8, el ADR 21 y E7-HU-029 (activar en cualquier estado no terminal). Está decidida por el usuario y pendiente de registro como DEC.
+**Cambios:**
+- `internal/agregacion/emergencias.go`: `rechazarViajeTerminal` pasa a `exigirViajeAdmiteEmergencia`. Compara contra `estados.EstadoEnTransito` del paquete generado, sin copiar el literal. Se conserva el `shortcut` de DT-16 (carrera entre la lectura y la activación).
+- `internal/agregacion/emergencia_test.go`: en `TestActivarEmergenciaViajeTerminalEs409`, `SOLICITADO` ahora espera 409 `viaje_no_admite_emergencia` sin llamar a `mensajeria`, y se agrega un caso `EN_TRANSITO` que espera 201.
+- `go.mod` no cambia: sigue en `tracer.40`.
+**Pendiente:** el contrato aún no publica el 409 nuevo (hace falta un tracer posterior; `tracer.41` es del alcance por cliente). El nombre `viaje_no_admite_emergencia` no está confirmado. Al publicar el tracer hay que subir el pin, y `pf-svc-core` (que fija `pf-svc-bff v0.1.21`) necesitará el tag nuevo del `bff`.
+**Verificación:** `gofmt`, `go vet ./...`, `go build ./...` y `go test -count=1 ./...` en verde. No se ejecutó `arch-test`.
 
 ## 2026-11-10 14:05 — Administración de usuarios, alcance y organizaciones (tracer.40, E8-T19)
 

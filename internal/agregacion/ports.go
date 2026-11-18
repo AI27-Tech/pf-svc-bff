@@ -51,7 +51,11 @@ type IdentidadPort interface {
 	FijarRolSujeto(ctx context.Context, id idclient.Id, body idclient.AsignacionRolEntrada) error
 	RevocarSesionesSujeto(ctx context.Context, id idclient.Id, body idclient.RevocacionSesionesEntrada) (*idclient.RevocacionSesionesResultado, error)
 	ObtenerAlcanceSujeto(ctx context.Context, id idclient.Id) (*idclient.AlcanceSujeto, error)
+	// FijarUnidadesSujeto está deprecada (DEC-149 #18): ya no define el alcance.
 	FijarUnidadesSujeto(ctx context.Context, id idclient.Id, body idclient.UnidadesSujetoEntrada) error
+	// FijarClientesSujeto fija "mis clientes" (DEC-149 #18). identidad no valida
+	// los ids contra catalogos: lo hace el handler antes de llamar (DEC-149 #21).
+	FijarClientesSujeto(ctx context.Context, id idclient.Id, body idclient.ClientesSujetoEntrada) error
 	FijarSubordinadosSujeto(ctx context.Context, id idclient.Id, body idclient.SubordinadosSujetoEntrada) error
 	ListarTenants(ctx context.Context, params idclient.ListarTenantsParams) (*idclient.PaginaTenants, error)
 	// CrearTenant es idempotente por id: creado es false si ya existía (200).
