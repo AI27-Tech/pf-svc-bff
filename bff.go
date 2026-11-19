@@ -237,6 +237,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/sujetos/{id}/reactivacion", protegido(http.HandlerFunc(m.handlers.ReactivarSujeto)))
 	mux.Handle("PUT /api/v1/sujetos/{id}/rol", protegido(http.HandlerFunc(m.handlers.FijarRolSujeto)))
 	mux.Handle("POST /api/v1/sujetos/{id}/revocaciones", protegido(http.HandlerFunc(m.handlers.RevocarSesionesSujeto)))
+	mux.Handle("GET /api/v1/sesion/alcance", protegido(http.HandlerFunc(m.handlers.ObtenerMiAlcance)))
 	mux.Handle("GET /api/v1/sujetos/{id}/alcance", protegido(http.HandlerFunc(m.handlers.ObtenerAlcanceSujeto)))
 	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/unidades", protegido(http.HandlerFunc(m.handlers.FijarUnidadesSujeto)))
 	mux.Handle("PUT /api/v1/sujetos/{id}/alcance/clientes", protegido(http.HandlerFunc(m.handlers.FijarClientesSujeto)))

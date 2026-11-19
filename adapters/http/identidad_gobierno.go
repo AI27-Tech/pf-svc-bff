@@ -159,6 +159,21 @@ func (a *IdentidadHTTP) ObtenerAlcanceSujeto(ctx context.Context, id idclient.Id
 	return resp.JSON200, nil
 }
 
+// ObtenerMiAlcance reenvía a identidad.obtenerMiAlcance (DEC-149 #24).
+func (a *IdentidadHTTP) ObtenerMiAlcance(ctx context.Context) (*idclient.MiAlcance, error) {
+	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
+	defer cancel()
+
+	resp, err := a.cli.ObtenerMiAlcanceWithResponse(ctx, conBearerIdentidad(ctx))
+	if err != nil {
+		return nil, errores.DeTransporte("ObtenerMiAlcance", err)
+	}
+	if resp.JSON200 == nil {
+		return nil, deIdentidad("ObtenerMiAlcance", resp.StatusCode(), resp.Body)
+	}
+	return resp.JSON200, nil
+}
+
 // FijarUnidadesSujeto reenvía a identidad.fijarUnidadesSujeto.
 func (a *IdentidadHTTP) FijarUnidadesSujeto(ctx context.Context, id idclient.Id, body idclient.UnidadesSujetoEntrada) error {
 	ctx, cancel := context.WithTimeout(ctx, a.presupuesto)
