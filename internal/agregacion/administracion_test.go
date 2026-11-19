@@ -31,6 +31,7 @@ type gobiernoFake struct {
 	llamadas     []string
 	claimsVistos *auth.Claims
 	errGob       error // error de las operaciones de sujetos y alcance
+	misClientes  []idclient.Id
 
 	detalle       *idclient.SujetoDetalle
 	pagina        *idclient.PaginaSujetos
@@ -100,6 +101,14 @@ func (g *gobiernoFake) FijarRolSujeto(ctx context.Context, _ idclient.Id, body i
 	g.anotar(ctx, "FijarRolSujeto")
 	g.recibio = body
 	return g.errGob
+}
+
+func (g *gobiernoFake) ObtenerMiAlcance(ctx context.Context) (*idclient.MiAlcance, error) {
+	g.anotar(ctx, "ObtenerMiAlcance")
+	if g.errGob != nil {
+		return nil, g.errGob
+	}
+	return &idclient.MiAlcance{ClientesEfectivosIds: g.misClientes}, nil
 }
 
 func (g *gobiernoFake) RevocarSesionesSujeto(ctx context.Context, _ idclient.Id, body idclient.RevocacionSesionesEntrada) (*idclient.RevocacionSesionesResultado, error) {
@@ -896,4 +905,54 @@ func TestDesactivarOrganizacion(t *testing.T) {
 	if code := desactivar(); code != http.StatusNotFound || len(m.registro) != 1 {
 		t.Errorf("sin tenant: status %d, llamadas %v; catalogos no debe tocarse", code, m.registro)
 	}
+}
+
+// TestObtenerMiAlcance (DEC-149 #24): monitorista, supervisor y coordinador
+// leen su propio alcance, sin id en la ruta; cualquier otro rol (el Cliente
+// incluido) recibe 403 sin tocar identidad, y sin claims es 401. La lista vacía
+// sale como [] y no como null.
+func TestObtenerMiAlcance(t *testing.T) {
+	permitidos := map[roles.Rol]bool{roles.RolMonitorista: true, roles.RolSupervisor: true, roles.RolCoordinador: true}
+	c1, c2 := uuid.New(), uuid.New()
+	for _, rol := range roles.Todos {
+		t.Run(string(rol), func(t *testing.T) {
+			m := nuevoMundo()
+			m.id.misClientes = []idclient.Id{c1, c2}
+			rec := pedir(m.h.ObtenerMiAlcance, http.MethodGet, "/api/v1/sesion/alcance", "", "", claimsRol(rol))
+			if !permitidos[rol] {
+				if rec.Code != http.StatusForbidden {
+					t.Fatalf("status = %d, se esperaba 403; cuerpo %s", rec.Code, rec.Body)
+				}
+				if len(m.registro) != 0 {
+					t.Errorf("un 403 no debe tocar identidad; llamadas %v", m.registro)
+				}
+				return
+			}
+			var got bffclient.MiAlcance
+			decodificarCuerpo(t, rec, &got)
+			if rec.Code != http.StatusOK || len(got.ClientesEfectivosIds) != 2 || got.ClientesEfectivosIds[0] != c1 {
+				t.Fatalf("status = %d, alcance %+v", rec.Code, got)
+			}
+		})
+	}
+	t.Run("sin claims", func(t *testing.T) {
+		m := nuevoMundo()
+		if rec := pedir(m.h.ObtenerMiAlcance, http.MethodGet, "/", "", "", nil); rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, se esperaba 401", rec.Code)
+		}
+	})
+	t.Run("lista vacía es []", func(t *testing.T) {
+		m := nuevoMundo()
+		rec := pedir(m.h.ObtenerMiAlcance, http.MethodGet, "/", "", "", claimsRol(roles.RolMonitorista))
+		if want := `{"clientes_efectivos_ids":[]}`; rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != want {
+			t.Errorf("status = %d, cuerpo %s; se esperaba %s", rec.Code, rec.Body, want)
+		}
+	})
+	t.Run("el 403 de identidad conserva su código", func(t *testing.T) {
+		m := nuevoMundo()
+		m.id.errGob = platformerrors.NewProhibido("identidad: rol sin lectura")
+		if rec := pedir(m.h.ObtenerMiAlcance, http.MethodGet, "/", "", "", claimsRol(roles.RolSupervisor)); rec.Code != http.StatusForbidden {
+			t.Errorf("status = %d, se esperaba 403", rec.Code)
+		}
+	})
 }
