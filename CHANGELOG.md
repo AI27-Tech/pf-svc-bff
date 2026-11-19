@@ -1,5 +1,21 @@
 # CHANGELOG
 
+## 2026-11-19 — `obtenerMiAlcance`: el usuario lee su propio alcance (tracer.43, DEC-149 #24)
+
+**Para quién:** el panel interno, que distingue "sin clientes asignados" de "sin viajes" (B-04), y `pf-svc-core`, cuyo adaptador en proceso debe implementar el método nuevo del puerto.
+
+**Comportamiento:**
+- `GET /api/v1/sesion/alcance` (`obtenerMiAlcance`): `{"clientes_efectivos_ids": [...]}` del llamante. Sin id: `identidad` resuelve al sujeto por el token.
+- Lo leen `monitorista`, `supervisor` y `coordinador`; otro rol (el Cliente incluido) responde 403 sin tocar `identidad`, y sin claims, 401. La lista vacía sale como `[]`.
+- Los errores de `identidad` conservan su status y `codigo`.
+
+**Cambios:**
+- `go.mod`: `api-client-go` de `tracer.42` a `v0.1.0-tracer.43`. Sin constantes de enum renombradas.
+- `IdentidadGobierno` (puerto) gana `ObtenerMiAlcance(ctx)`. **Quien lo implemente debe añadirlo:** el adaptador en proceso de `core` (`BFFIdentidadEnProceso`) y el HTTP (`IdentidadHTTP`, ya hecho aquí).
+- Pruebas: handler por rol (200 o 403 para cada rol de `roles.Todos`, 401 sin claims, `[]`, código de identidad), adaptador HTTP (ruta `/api/v1/alcances/propio`, Bearer del usuario, 403) y la ruta en la tabla de contrato.
+
+**Verificado:** `go build`, `go vet`, `gofmt`, `go test ./...` y `arch-test@v0.1.10`. Las pruebas nuevas fallaban antes de implementar.
+
 ## 2026-11-18 — `obtenerAsignacion` responde 403 a `ejecutivo` y `reaccion` (DEC-149 #23)
 
 **Para quién:** el panel interno. La ficha técnica (`/viajes/$id/ficha`) ya no carga para esos dos roles, igual que la lista y el detalle internos (DEC-149 #16).

@@ -148,3 +148,39 @@ func TestAltasIdempotentesPorHTTP(t *testing.T) {
 		srv.Close()
 	}
 }
+
+// TestObtenerMiAlcancePorHTTP: el adaptador llama a GET /api/v1/alcances/propio
+// de identidad con el Bearer del usuario (identidad resuelve al sujeto por su
+// token) y el 403 de identidad llega al panel con su status.
+func TestObtenerMiAlcancePorHTTP(t *testing.T) {
+	cliente := uuid.NewString()
+	for _, status := range []int{http.StatusOK, http.StatusForbidden} {
+		var ruta, authz string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ruta, authz = r.Method+" "+r.URL.Path, r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			if status == http.StatusOK {
+				_, _ = io.WriteString(w, `{"clientes_efectivos_ids":["`+cliente+`"]}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"codigo":"prohibido","mensaje":"identidad: rol sin lectura"}`)
+		}))
+		id, err := NewIdentidadHTTP(srv.URL, srv.Client())
+		if err != nil {
+			t.Fatalf("NewIdentidadHTTP: %v", err)
+		}
+		h := agregacion.NewHandlers(agregacion.Deps{Identidad: id})
+		rec := servirBff(h.ObtenerMiAlcance, http.MethodGet, "/api/v1/sesion/alcance", "", "monitorista", "")
+		srv.Close()
+		if ruta != "GET /api/v1/alcances/propio" || authz != "Bearer tok-roster" {
+			t.Errorf("identidad recibió %q con Authorization %q", ruta, authz)
+		}
+		if rec.Code != status {
+			t.Errorf("status = %d, se esperaba %d; cuerpo %s", rec.Code, status, rec.Body)
+		}
+		if status == http.StatusOK && !strings.Contains(rec.Body.String(), `"clientes_efectivos_ids":["`+cliente+`"]`) {
+			t.Errorf("cuerpo = %s", rec.Body)
+		}
+	}
+}
