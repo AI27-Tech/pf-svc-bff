@@ -37,6 +37,15 @@ var rolesMisClientes = map[roles.Rol]bool{
 	roles.RolJefeOperativo: true,
 }
 
+// rolesConAlcance leen su propio alcance (DEC-149 #24): los tres roles con
+// alcance de monitoreo. Administrador y Jefe Operativo ven todo, y el resto no
+// tiene alcance, así que reciben 403.
+var rolesConAlcance = map[roles.Rol]bool{
+	roles.RolMonitorista: true,
+	roles.RolSupervisor:  true,
+	roles.RolCoordinador: true,
+}
+
 // codigoOrganizacionDesactivada es el 409 de una organización desactivada:
 // desactivar es terminal, no se edita ni se revierte con un alta (DEC-139 #4).
 const codigoOrganizacionDesactivada = "organizacion_desactivada"
@@ -433,6 +442,26 @@ func (h *Handlers) ObtenerAlcanceSujeto(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	escribirJSON(w, http.StatusOK, bffclient.AlcanceSujeto(*a))
+}
+
+// ObtenerMiAlcance delega en identidad.obtenerMiAlcance (DEC-149 #24). Sin id
+// en la ruta: identidad resuelve al sujeto por el token. El bff filtra el rol
+// antes de llamar; identidad lo vuelve a decidir. La lista vacía sale como [].
+func (h *Handlers) ObtenerMiAlcance(w http.ResponseWriter, r *http.Request) {
+	if !h.soloRoles(w, r, "obtenerMiAlcance", rolesConAlcance) {
+		return
+	}
+	ctx, _ := conToken(r)
+	a, err := h.deps.Identidad.ObtenerMiAlcance(ctx)
+	if err != nil {
+		escribirError(w, err)
+		return
+	}
+	out := bffclient.MiAlcance(*a)
+	if out.ClientesEfectivosIds == nil {
+		out.ClientesEfectivosIds = []bffclient.Id{}
+	}
+	escribirJSON(w, http.StatusOK, out)
 }
 
 // FijarUnidadesSujeto valida contra operacion que cada unidad exista en el

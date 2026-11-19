@@ -51,6 +51,9 @@ type IdentidadPort interface {
 	FijarRolSujeto(ctx context.Context, id idclient.Id, body idclient.AsignacionRolEntrada) error
 	RevocarSesionesSujeto(ctx context.Context, id idclient.Id, body idclient.RevocacionSesionesEntrada) (*idclient.RevocacionSesionesResultado, error)
 	ObtenerAlcanceSujeto(ctx context.Context, id idclient.Id) (*idclient.AlcanceSujeto, error)
+	// ObtenerMiAlcance lee los clientes efectivos del propio llamante (DEC-149
+	// #24). El sujeto lo resuelve identidad por el token: no lleva id.
+	ObtenerMiAlcance(ctx context.Context) (*idclient.MiAlcance, error)
 	// FijarUnidadesSujeto está deprecada (DEC-149 #18): ya no define el alcance.
 	FijarUnidadesSujeto(ctx context.Context, id idclient.Id, body idclient.UnidadesSujetoEntrada) error
 	// FijarClientesSujeto fija "mis clientes" (DEC-149 #18). identidad no valida
