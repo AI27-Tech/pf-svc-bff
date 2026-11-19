@@ -147,8 +147,8 @@ func (h *Handlers) ModificarUnidad(w http.ResponseWriter, r *http.Request) {
 
 // ObtenerAsignacion delega en operacion.obtenerAsignacion y responde la escolta
 // del viaje con cada unidad legible, para la ficha técnica (E8-T12). Cualquier
-// rol interno; el Cliente recibe 404 sin tocar ningún puerto. Sin asignación
-// vigente, `unidades` sale vacío.
+// rol interno salvo ejecutivo y reaccion (403, DEC-149 #23); el Cliente recibe
+// 404 sin tocar ningún puerto. Sin asignación vigente, `unidades` sale vacío.
 func (h *Handlers) ObtenerAsignacion(w http.ResponseWriter, r *http.Request) {
 	claims := autorizacion.ClaimsDe(r.Context())
 	if claims == nil {
@@ -157,6 +157,9 @@ func (h *Handlers) ObtenerAsignacion(w http.ResponseWriter, r *http.Request) {
 	}
 	if claims.Audiencia != auth.AudienciaInterno {
 		escribirError(w, platformerrors.NewNoEncontrado("bff: obtenerAsignacion: viaje no encontrado"))
+		return
+	}
+	if rechazarSinViajes(w, r, "obtenerAsignacion") {
 		return
 	}
 	id, err := uuidDe(r.PathValue("id"))

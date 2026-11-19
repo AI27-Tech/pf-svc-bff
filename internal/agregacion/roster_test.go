@@ -344,7 +344,7 @@ func TestCrearVehiculoDescartaClienteId(t *testing.T) {
 }
 
 // TestObtenerAsignacion: la escolta del viaje sale con unidades legibles para
-// cualquier rol interno; sin asignación, `unidades` es [] (no null); el Cliente
+// cualquier rol interno salvo ejecutivo y reaccion (403, DEC-149 #23); sin asignación, `unidades` es [] (no null); el Cliente
 // recibe 404 sin tocar operacion.
 func TestObtenerAsignacion(t *testing.T) {
 	viaje := uuid.New()
@@ -368,11 +368,22 @@ func TestObtenerAsignacion(t *testing.T) {
 		}
 	})
 	t.Run("sin asignación es vacío", func(t *testing.T) {
-		rec := peticionRol(t, NewHandlers(Deps{Operacion: &fakeOperacion{}, Catalogos: &fakeCatalogos{}}).ObtenerAsignacion, http.MethodGet, url, viaje.String(), "", "reaccion")
+		rec := peticionRol(t, NewHandlers(Deps{Operacion: &fakeOperacion{}, Catalogos: &fakeCatalogos{}}).ObtenerAsignacion, http.MethodGet, url, viaje.String(), "", "jefe_operativo")
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"unidades":[]`) {
 			t.Errorf("status = %d cuerpo = %s, se esperaba 200 con unidades []", rec.Code, rec.Body)
 		}
 	})
+	// DEC-149 #23: ejecutivo y reaccion no leen la ficha del viaje; el 403 sale
+	// antes de tocar operacion.
+	for _, rol := range []string{"ejecutivo", "reaccion"} {
+		t.Run(rol+" 403", func(t *testing.T) {
+			f := &fakeOperacion{escoltaErr: platformerrors.NewRoto("no debió llamarse")}
+			rec := peticionRol(t, NewHandlers(Deps{Operacion: f}).ObtenerAsignacion, http.MethodGet, url, viaje.String(), "", rol)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("status = %d, se esperaba 403", rec.Code)
+			}
+		})
+	}
 	t.Run("cliente 404", func(t *testing.T) {
 		f := &fakeOperacion{escoltaErr: platformerrors.NewRoto("no debió llamarse")}
 		rec := peticionRol(t, NewHandlers(Deps{Operacion: f}).ObtenerAsignacion, http.MethodGet, url, viaje.String(), "", "cliente")

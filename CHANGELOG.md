@@ -1,4 +1,14 @@
 # CHANGELOG
+
+## 2026-11-18 — `obtenerAsignacion` responde 403 a `ejecutivo` y `reaccion` (DEC-149 #23)
+
+**Para quién:** el panel interno. La ficha técnica (`/viajes/$id/ficha`) ya no carga para esos dos roles, igual que la lista y el detalle internos (DEC-149 #16).
+
+**Cambios:**
+- `GET /api/v1/viajes/{id}/asignacion`: `403` a `ejecutivo` y `reaccion` antes de tocar `operacion`, con `rechazarSinViajes`. El detalle de emergencia de Reacción no cambia: llama al puerto de `operacion` desde el `bff`, sin pasar por esta ruta.
+- `TestObtenerAsignacion`: casos 403 de ambos roles (fallaban con 502 antes del cambio). El caso "sin asignación" pasa a `jefe_operativo`.
+
+**Verificado:** `go test ./...`, `go vet`, `gofmt` y `arch-test@v0.1.10` en verde.
 ## 2026-11-18 14:22 — Alcance del monitoreo por cliente en el bff (tracer.41 y tracer.42, DEC-149)
 **Para quién:** el panel interno (`/roster`, bandeja de viajes, administración) y `pf-svc-core`, que debe cablear `FijarClientesSujeto` en proceso.
 **Comportamiento:**
