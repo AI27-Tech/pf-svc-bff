@@ -275,6 +275,27 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	// pool. A diferencia de la vista de cliente, la respuesta NO se recorta. OJO:
 	// la bandeja es cola única (sin {id}); el bff resuelve la bandeja del sujeto
 	// desde los claims (DEC-103).
+	// Solicitudes (V2, ADR 38, DEC-148): espejo de operacion. Cada handler aplica la
+	// guarda de audiencia y rol del contrato y reenvia; operacion es la dueña de
+	// la maquina de estados.
+	mux.Handle("POST /api/v1/solicitudes", protegido(http.HandlerFunc(m.handlers.CrearSolicitud)))
+	mux.Handle("GET /api/v1/solicitudes", protegido(http.HandlerFunc(m.handlers.ListarSolicitudes)))
+	mux.Handle("GET /api/v1/solicitudes/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerSolicitud)))
+	mux.Handle("GET /api/v1/solicitudes/{id}/historico", protegido(http.HandlerFunc(m.handlers.ListarHistoricoSolicitud)))
+	mux.Handle("PUT /api/v1/solicitudes/{id}/cotizacion", protegido(http.HandlerFunc(m.handlers.CotizarSolicitud)))
+	mux.Handle("PUT /api/v1/solicitudes/{id}/fecha-hora", protegido(http.HandlerFunc(m.handlers.ReprogramarSolicitud)))
+	mux.Handle("POST /api/v1/solicitudes/{id}/rechazo-cotizacion", protegido(http.HandlerFunc(m.handlers.RechazarCotizacion)))
+	mux.Handle("POST /api/v1/solicitudes/{id}/cancelacion", protegido(http.HandlerFunc(m.handlers.CancelarSolicitud)))
+	mux.Handle("PUT /api/v1/solicitudes/{id}/pago", protegido(http.HandlerFunc(m.handlers.ConfirmarPago)))
+	mux.Handle("POST /api/v1/solicitudes/{id}/reversa-pago", protegido(http.HandlerFunc(m.handlers.RevertirPago)))
+	mux.Handle("POST /api/v1/solicitudes/{id}/aprobacion", protegido(http.HandlerFunc(m.handlers.AprobarSolicitud)))
+	mux.Handle("POST /api/v1/solicitudes/{id}/rechazo", protegido(http.HandlerFunc(m.handlers.RechazarSolicitud)))
+	// Conversacion de la solicitud: audiencia Cliente, vista recortada; la bandeja
+	// de cotizacion es cola unica (sin {id}).
+	mux.Handle("GET /api/v1/solicitudes/{id}/conversacion", protegido(http.HandlerFunc(m.handlers.ObtenerConversacionSolicitud)))
+	mux.Handle("GET /api/v1/solicitudes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajesSolicitud)))
+	mux.Handle("POST /api/v1/solicitudes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.EnviarMensajeSolicitud)))
+	mux.Handle("GET /api/v1/bandeja/solicitudes", protegido(http.HandlerFunc(m.handlers.ListarTrabajoBandejaSolicitudes)))
 	mux.Handle("GET /api/v1/bandeja/trabajo", protegido(http.HandlerFunc(m.handlers.ListarTrabajoBandeja)))
 	mux.Handle("GET /api/v1/conversaciones/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerConversacion)))
 	mux.Handle("GET /api/v1/conversaciones/{id}/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajes)))

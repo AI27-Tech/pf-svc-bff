@@ -20,6 +20,7 @@ import (
 
 // fakeMensajeria registra las entradas recibidas y devuelve respuestas/err fijos.
 type fakeMensajeria struct {
+	sols                  fakeSolicitudesMsg // solicitudes (V2), ver solicitudes_test.go
 	pagina                *msgclient.PaginaEmergencias
 	caso                  *msgclient.CasoEmergencia
 	reclamo               *msgclient.Reclamo

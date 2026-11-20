@@ -107,8 +107,13 @@ func (h *Handlers) CerrarSesion(w http.ResponseWriter, r *http.Request) {
 }
 
 // CrearViaje delega en operacion.crearViaje. El estado inicial lo fija el rol del
-// token en operacion (DEC-026); bff reenvia, no decide. Ruta protegida.
+// token en operacion (DEC-026); bff reenvia, no decide. Solo Operacion
+// (jefe_operativo y administrador): el cliente crea una solicitud y recibe 403
+// aqui (ADR 38). Ruta protegida.
 func (h *Handlers) CrearViaje(w http.ResponseWriter, r *http.Request) {
+	if !h.soloRoles(w, r, "crearViaje", rolesCreanViaje) {
+		return
+	}
 	var cuerpo bffclient.CrearViajeEntrada
 	if err := decodificar(r, &cuerpo); err != nil {
 		escribirError(w, err)

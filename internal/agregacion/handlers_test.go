@@ -171,7 +171,7 @@ func TestCrearViajeReenviaEntradaTraducidaADevuelveViaje(t *testing.T) {
 		},
 	}
 	rec := hacerPeticion(t, h.CrearViaje, http.MethodPost, "/api/v1/viajes", entrada,
-		&auth.Claims{SesionID: "s", Subject: "u"})
+		&auth.Claims{SesionID: "s", Subject: "u", Rol: "jefe_operativo", Audiencia: auth.AudienciaInterno})
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, se esperaba 201; cuerpo: %s", rec.Code, rec.Body.String())
@@ -528,6 +528,7 @@ func (f *fakeIdentidad) ObtenerSesion(_ context.Context, _ idclient.Id) (*idclie
 // fakeOperacion registra las entradas que recibe y devuelve respuestas o un
 // error fijos. Implementa OperacionPort.
 type fakeOperacion struct {
+	sols    fakeSolicitudesOp // solicitudes (V2), ver solicitudes_test.go
 	viaje   *opclient.Viaje
 	pagina  *opclient.PaginaViajes
 	detalle *opclient.ViajeDetalle
