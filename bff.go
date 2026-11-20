@@ -268,13 +268,6 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/viajes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajesViaje)))
 	mux.Handle("POST /api/v1/viajes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.EnviarMensajeViaje)))
 
-	// Bandeja y conversación interna del pool (E8-T15, DEC-006 invertido): la
-	// cola única de trabajo y las acciones del pool de Ejecutivos sobre una
-	// conversación por su id (reclamo, transferencia, atención, recibos). Los
-	// handlers exigen audiencia Interna; mensajeria autoriza por membresía en el
-	// pool. A diferencia de la vista de cliente, la respuesta NO se recorta. OJO:
-	// la bandeja es cola única (sin {id}); el bff resuelve la bandeja del sujeto
-	// desde los claims (DEC-103).
 	// Solicitudes (V2, ADR 38, DEC-148): espejo de operacion. Cada handler aplica la
 	// guarda de audiencia y rol del contrato y reenvia; operacion es la dueña de
 	// la maquina de estados.
@@ -290,12 +283,20 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/solicitudes/{id}/reversa-pago", protegido(http.HandlerFunc(m.handlers.RevertirPago)))
 	mux.Handle("POST /api/v1/solicitudes/{id}/aprobacion", protegido(http.HandlerFunc(m.handlers.AprobarSolicitud)))
 	mux.Handle("POST /api/v1/solicitudes/{id}/rechazo", protegido(http.HandlerFunc(m.handlers.RechazarSolicitud)))
-	// Conversacion de la solicitud: audiencia Cliente, vista recortada; la bandeja
-	// de cotizacion es cola unica (sin {id}).
+	// Conversacion de la solicitud: audiencia Cliente, vista recortada.
 	mux.Handle("GET /api/v1/solicitudes/{id}/conversacion", protegido(http.HandlerFunc(m.handlers.ObtenerConversacionSolicitud)))
 	mux.Handle("GET /api/v1/solicitudes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajesSolicitud)))
 	mux.Handle("POST /api/v1/solicitudes/{id}/conversacion/mensajes", protegido(http.HandlerFunc(m.handlers.EnviarMensajeSolicitud)))
+	// Bandeja de cotizacion: cola unica (sin {id}), solo cotizacion y administrador.
 	mux.Handle("GET /api/v1/bandeja/solicitudes", protegido(http.HandlerFunc(m.handlers.ListarTrabajoBandejaSolicitudes)))
+
+	// Bandeja y conversación interna del pool (E8-T15, DEC-006 invertido): la
+	// cola única de trabajo y las acciones del pool de Ejecutivos sobre una
+	// conversación por su id (reclamo, transferencia, atención, recibos). Los
+	// handlers exigen audiencia Interna; mensajeria autoriza por membresía en el
+	// pool. A diferencia de la vista de cliente, la respuesta NO se recorta. OJO:
+	// la bandeja es cola única (sin {id}); el bff resuelve la bandeja del sujeto
+	// desde los claims (DEC-103).
 	mux.Handle("GET /api/v1/bandeja/trabajo", protegido(http.HandlerFunc(m.handlers.ListarTrabajoBandeja)))
 	mux.Handle("GET /api/v1/conversaciones/{id}", protegido(http.HandlerFunc(m.handlers.ObtenerConversacion)))
 	mux.Handle("GET /api/v1/conversaciones/{id}/mensajes", protegido(http.HandlerFunc(m.handlers.ListarMensajes)))

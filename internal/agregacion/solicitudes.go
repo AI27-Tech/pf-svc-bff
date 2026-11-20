@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 
 	bffclient "github.com/AI27-Tech/pf-pkg-contracts/packages/api-client-go/bff"
@@ -126,7 +127,10 @@ func aHistoricoSolicitud(h *opclient.HistoricoSolicitud) bffclient.HistoricoSoli
 // componerClienteSolicitudes llena `cliente` (id y nombre de catalogos, o solo el
 // id si ya no está) en las solicitudes, en una lectura por lote. Solo se llama
 // para la audiencia Interno (DEC-149 #14); el Cliente no recibe el campo.
-func (h *Handlers) componerClienteSolicitudes(ctx context.Context, bearer string, items []bffclient.Solicitud) error {
+// El nombre es opcional: si catalogos falla se devuelve solo el id y se registra,
+// porque en las escrituras operacion ya confirmó la transición y un 5xx aquí haría
+// reintentar una acción que sí ocurrió.
+func (h *Handlers) componerClienteSolicitudes(ctx context.Context, bearer string, items []bffclient.Solicitud) {
 	var ids []catclient.Id
 	vistos := map[catclient.Id]bool{}
 	for _, s := range items {
@@ -137,7 +141,8 @@ func (h *Handlers) componerClienteSolicitudes(ctx context.Context, bearer string
 	}
 	clientes, err := h.clientesPorLote(ctx, bearer, ids)
 	if err != nil {
-		return err
+		slog.WarnContext(ctx, "bff: solicitudes: catalogos no respondio, cliente sin nombre", slog.Any("error", err))
+		clientes = nil
 	}
 	for i, s := range items {
 		if s.ClienteId == nil {
@@ -149,17 +154,13 @@ func (h *Handlers) componerClienteSolicitudes(ctx context.Context, bearer string
 		}
 		items[i].Cliente = &c
 	}
-	return nil
 }
 
 // responderSolicitudes escribe las solicitudes ya espejadas y, para la audiencia
 // Interno, con el cliente compuesto.
 func (h *Handlers) responderSolicitudes(w http.ResponseWriter, r *http.Request, status int, items []bffclient.Solicitud, respuesta func() any) {
 	if c := autorizacion.ClaimsDe(r.Context()); c != nil && c.Audiencia == auth.AudienciaInterno {
-		if err := h.componerClienteSolicitudes(tokenctx.Con(r.Context(), r.Header.Get("Authorization")), r.Header.Get("Authorization"), items); err != nil {
-			escribirError(w, err)
-			return
-		}
+		h.componerClienteSolicitudes(tokenctx.Con(r.Context(), r.Header.Get("Authorization")), r.Header.Get("Authorization"), items)
 	}
 	escribirJSON(w, status, respuesta())
 }

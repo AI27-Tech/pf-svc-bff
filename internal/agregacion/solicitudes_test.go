@@ -498,3 +498,142 @@ func TestBandejaSolicitudesPorRol(t *testing.T) {
 		t.Errorf("409: status %d %s", rec.Code, rec.Body)
 	}
 }
+
+// --- Catalogos caído: el nombre del cliente es opcional ---
+
+// clienteSinNombre exige 200/201 con `cliente.id` y sin `nombre`.
+func clienteSinNombre(t *testing.T, quien string, rec *httptest.ResponseRecorder, status int) {
+	t.Helper()
+	if rec.Code != status {
+		t.Errorf("%s: status %d, quiere %d (%s)", quien, rec.Code, status, rec.Body)
+		return
+	}
+	var out bffclient.Solicitud
+	decodificarCuerpo(t, rec, &out)
+	if out.Cliente == nil || out.Cliente.Id != clienteID || out.Cliente.Nombre != nil {
+		t.Errorf("%s: cliente = %+v, quiere solo el id", quien, out.Cliente)
+	}
+}
+
+// operacion ya confirmó la transición: si catalogos falla, la escritura no puede
+// volverse 5xx (el reintento daría 409/404 de una acción que sí ocurrió).
+func TestSolicitudesCatalogosCaidoNoTumbaLasEscrituras(t *testing.T) {
+	escrituras := map[string]bool{"cotizarSolicitud": true, "reprogramarSolicitud": true, "confirmarPago": true,
+		"revertirPago": true, "aprobarSolicitud": true, "rechazarSolicitud": true, "obtenerSolicitud": true}
+	vistas := 0
+	for _, a := range accionesSol() {
+		if !escrituras[a.nombre] {
+			continue
+		}
+		vistas++
+		for _, c := range a.permitido {
+			if c.Audiencia != auth.AudienciaInterno {
+				continue
+			}
+			op := &fakeOperacion{}
+			op.sols.sol = solicitudDe("PAGADO")
+			h := NewHandlers(Deps{Operacion: op, Catalogos: &fakeCatalogos{err: platformerrors.NewRoto("catalogos caido")}})
+			clienteSinNombre(t, a.nombre+" como "+c.Rol, peticionSol(a.handler(h), a.metodo, "/x", a.cuerpo, c), http.StatusOK)
+		}
+	}
+	if vistas != len(escrituras) {
+		t.Fatalf("operaciones probadas %d, quiere %d", vistas, len(escrituras))
+	}
+}
+
+func TestSolicitudesCatalogosCaidoNoTumbaListar(t *testing.T) {
+	op := &fakeOperacion{}
+	op.sols.pagina = &opclient.PaginaSolicitudes{Items: []opclient.Solicitud{*solicitudDe("PAGADO")}}
+	h := NewHandlers(Deps{Operacion: op, Catalogos: &fakeCatalogos{err: platformerrors.NewRoto("catalogos caido")}})
+	rec := peticionSol(h.ListarSolicitudes, "GET", "/x", "", interno(roles.RolJefeOperativo))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	var out bffclient.PaginaSolicitudes
+	decodificarCuerpo(t, rec, &out)
+	if len(out.Items) != 1 || out.Items[0].Cliente == nil || out.Items[0].Cliente.Id != clienteID || out.Items[0].Cliente.Nombre != nil {
+		t.Errorf("items = %+v", out.Items)
+	}
+}
+
+// --- Guardas: audiencia y rol deben coincidir ---
+
+// Un token de audiencia Cliente con rol de personal, o de audiencia Interno con
+// rol `cliente`, no abre ninguna operación que no sea suya.
+func TestSolicitudesAudienciaYRolDebenCoincidir(t *testing.T) {
+	falsos := []*auth.Claims{
+		{SesionID: "s", Subject: "u", Rol: string(roles.RolAdministrador), Audiencia: auth.AudienciaCliente},
+		{SesionID: "s", Subject: "u", Rol: string(roles.RolCotizacion), Audiencia: auth.AudienciaCliente},
+		{SesionID: "s", Subject: "u", Rol: string(roles.RolJefeOperativo), Audiencia: auth.AudienciaCliente},
+		{SesionID: "s", Subject: "u", Rol: "cliente", Audiencia: auth.AudienciaInterno},
+	}
+	delCliente := map[string]bool{"rechazarCotizacion": true, "cancelarSolicitud": true, "obtenerSolicitud": true}
+	for _, a := range accionesSol() {
+		for _, c := range falsos {
+			// La audiencia Cliente es la que habilita las acciones del cliente.
+			if c.Audiencia == auth.AudienciaCliente && delCliente[a.nombre] {
+				continue
+			}
+			op := &fakeOperacion{}
+			rec := peticionSol(a.handler(hSol(op, &fakeMensajeria{})), a.metodo, "/x", a.cuerpo, c)
+			if rec.Code != http.StatusForbidden || len(op.sols.llamadas) != 0 {
+				t.Errorf("%s con audiencia %s y rol %s: status %d, quiere 403 sin tocar operacion", a.nombre, c.Audiencia, c.Rol, rec.Code)
+			}
+		}
+	}
+	for _, c := range falsos {
+		op := &fakeOperacion{}
+		if rec := peticionSol(hSol(op, nil).CrearViaje, "POST", "/x", `{"origen":"CDMX","destinos":[{"nombre":"MTY"}]}`, c); rec.Code != http.StatusForbidden || op.crearRecibio.Origen != "" {
+			t.Errorf("crearViaje con audiencia %s y rol %s: status %d, quiere 403", c.Audiencia, c.Rol, rec.Code)
+		}
+	}
+	if rec := peticionSol(hSol(&fakeOperacion{}, nil).ListarSolicitudes, "GET", "/x", "", falsos[3]); rec.Code != http.StatusForbidden {
+		t.Errorf("listarSolicitudes con audiencia Interno y rol cliente: status %d, quiere 403", rec.Code)
+	}
+}
+
+// --- {id} que no es UUID: 400 en las operaciones con {id} ---
+
+func TestSolicitudesIdNoUUIDEs400(t *testing.T) {
+	ops := map[string]func(*Handlers) http.HandlerFunc{}
+	claims := map[string]*auth.Claims{}
+	for _, a := range accionesSol() {
+		ops[a.nombre], claims[a.nombre] = a.handler, a.permitido[0]
+	}
+	conv := map[string]func(*Handlers) http.HandlerFunc{
+		"obtenerConversacionSolicitud": func(h *Handlers) http.HandlerFunc { return h.ObtenerConversacionSolicitud },
+		"listarMensajesSolicitud":      func(h *Handlers) http.HandlerFunc { return h.ListarMensajesSolicitud },
+		"enviarMensajeSolicitud":       func(h *Handlers) http.HandlerFunc { return h.EnviarMensajeSolicitud },
+	}
+	for n, f := range conv {
+		ops[n], claims[n] = f, cliente
+	}
+	if len(ops) != 13 {
+		t.Fatalf("operaciones con {id}: %d, quiere 13", len(ops))
+	}
+	for n, f := range ops {
+		op, msg := &fakeOperacion{}, &fakeMensajeria{}
+		req := httptest.NewRequest("POST", "/x", strings.NewReader(`{}`))
+		req.SetPathValue("id", "no-es-uuid")
+		req = req.WithContext(auth.ContextWithClaims(req.Context(), claims[n]))
+		rec := httptest.NewRecorder()
+		f(hSol(op, msg))(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, quiere 400", n, rec.Code)
+		}
+		if len(op.sols.llamadas) != 0 || len(msg.sols.llamadas) != 0 {
+			t.Errorf("%s: no debe llamar a operacion ni mensajeria", n)
+		}
+	}
+}
+
+// crearViaje exige audiencia Interno además del rol: un rol de personal en un
+// token de audiencia Cliente recibe 403 sin llegar a operacion.
+func TestCrearViajeRolDeOperacionConAudienciaClienteEs403(t *testing.T) {
+	c := &auth.Claims{SesionID: "s", Subject: "u", Rol: string(roles.RolAdministrador), Audiencia: auth.AudienciaCliente}
+	op := &fakeOperacion{}
+	rec := peticionSol(hSol(op, nil).CrearViaje, "POST", "/x", `{"origen":"CDMX","destinos":[{"nombre":"MTY"}]}`, c)
+	if rec.Code != http.StatusForbidden || op.crearRecibio.Origen != "" {
+		t.Errorf("status %d, quiere 403 sin llegar a operacion", rec.Code)
+	}
+}

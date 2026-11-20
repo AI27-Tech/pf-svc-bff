@@ -17,9 +17,9 @@ func TestEtiquetaPorEstado(t *testing.T) {
 	casos := map[estados.EstadoViaje]string{
 		estados.EstadoAprobado:            "Servicio confirmado",
 		estados.EstadoAsignado:            "Servicio confirmado",
-		estados.EstadoAptoParaSalida:      "En preparacion",
-		estados.EstadoEnEmbarque:          "En preparacion",
-		estados.EstadoPatrullaEnCamino:    "En preparacion",
+		estados.EstadoAptoParaSalida:      "En preparación",
+		estados.EstadoEnEmbarque:          "En preparación",
+		estados.EstadoPatrullaEnCamino:    "En preparación",
 		estados.EstadoEnTransito:          "En camino",
 		estados.EstadoEnDestino:           "En camino",
 		estados.EstadoEnDescarga:          "En camino",

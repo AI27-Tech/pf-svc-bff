@@ -39,9 +39,9 @@ var ahora = func() time.Time { return time.Now().UTC() }
 var hitosPorEstado = map[estados.EstadoViaje]string{
 	estados.EstadoAprobado:            "Servicio confirmado",
 	estados.EstadoAsignado:            "Servicio confirmado",
-	estados.EstadoAptoParaSalida:      "En preparacion",
-	estados.EstadoEnEmbarque:          "En preparacion",
-	estados.EstadoPatrullaEnCamino:    "En preparacion",
+	estados.EstadoAptoParaSalida:      "En preparación",
+	estados.EstadoEnEmbarque:          "En preparación",
+	estados.EstadoPatrullaEnCamino:    "En preparación",
 	estados.EstadoEnTransito:          "En camino",
 	estados.EstadoEnDestino:           "En camino",
 	estados.EstadoEnDescarga:          "En camino",
@@ -54,6 +54,9 @@ var hitosPorEstado = map[estados.EstadoViaje]string{
 // confirmado, y de ahi el viaje sigue con hitosPorEstado. Unico lugar de estos
 // nombres; el viaje nace en APROBADO (ADR 38), asi que SOLICITADO ya no es un
 // estado del viaje. Ningun otro codigo debe repetir estas cadenas.
+//
+// Ningún handler consume todavía esta tabla ni EtiquetaSolicitud (solo las
+// pruebas); se conservan hasta que producto valide los nombres.
 //
 // TODO(producto): nombres de hitos pendientes de validación (DEC-148 #32). Los
 // de VENCIDA, rechazo y cancelacion no vienen en DEC-148 #32: son los del viaje

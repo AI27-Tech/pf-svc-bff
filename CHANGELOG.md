@@ -10,7 +10,9 @@
 - `Solicitud.cliente` (id y nombre desde `catalogos`, un lote por respuesta) solo para audiencia Interno; el Cliente no lo recibe ni dispara lectura de `catalogos`.
 - Conversación de la solicitud (`/solicitudes/{id}/conversacion` y `/mensajes`): solo audiencia Cliente, vista recortada igual que la del viaje; cualquier rol interno recibe 403.
 - `GET /api/v1/bandeja/solicitudes`: `cotizacion` y `administrador`; el Cliente recibe 403 y los demás roles internos 404, como dice `bff.yaml`.
-- `crearViaje`: solo `jefe_operativo` y `administrador`; el Cliente y el resto reciben 403 (antes lo decidía solo `operacion`).
+- `crearViaje`: solo `jefe_operativo` y `administrador`, y además audiencia Interno (un rol de personal en un token de audiencia Cliente recibe 403); el Cliente y el resto reciben 403 (antes lo decidía solo `operacion`).
+- Si `catalogos` falla al componer `Solicitud.cliente`, la respuesta sale igual con `cliente.id` y sin `nombre` (el nombre es opcional) y el fallo se registra con `slog.Warn`. Antes era 5xx aun cuando `operacion` ya había confirmado la escritura, y el reintento daba 409/404. Aplica a las seis escrituras internas y a `listarSolicitudes` y `obtenerSolicitud`.
+- Hitos de la solicitud: `hitosPorEstadoSolicitud` y `EtiquetaSolicitud` (`internal/tracking`) **no los consume aún ningún handler**, solo las pruebas. Se dejan porque los nombres esperan validación de producto (DEC-148 #32, `TODO(producto)`); su uso depende de esa validación. "En preparación" (hito del viaje) se escribe ahora con acento, igual que "Cotización".
 
 **Cambios:**
 - `internal/agregacion/ports.go`: `OperacionPort` +12 y `MensajeriaPort` +4 métodos.
@@ -18,7 +20,7 @@
 - `adapters/http/solicitudes.go`: adaptadores HTTP. `ListarMensajesSolicitud` y `EnviarMensajeSolicitud` resuelven la conversación por `obtenerConversacionDeSolicitud` y usan su id, bajo un solo presupuesto.
 - Pruebas con *fakes* de los puertos y servidores de prueba para los adaptadores; la tabla de rutas suma las 16.
 
-**Verificado:** `go build`, `go vet`, `gofmt`, `go test -race ./...`, `go build ./cmd/api` y `arch-test@v0.1.1` y `@v0.1.10`. Se comprobó que las pruebas de rol fallan si se abre una guarda.
+**Verificado:** `go build`, `go vet`, `gofmt`, `go test -race ./...`, `go build ./cmd/api` y `arch-test@v0.1.1` y `@v0.1.10`. Se comprobó que las pruebas de rol fallan si se abre una guarda y que las de `catalogos` caído fallan si se revierte el arreglo. Los adaptadores se prueban con los cinco códigos 409 (`transicion_no_permitida`, `fecha_pago_fuera_de_vigencia`, `fecha_hora_servicio_requerida`, `conversacion_solo_lectura`, `destino_no_es_cotizacion`).
 
 ## 2026-11-20 12:00 — Adopta el contrato tracer.45: el viaje nace aprobado y el cliente solo cancela (ADR 38, DEC-148)
 
