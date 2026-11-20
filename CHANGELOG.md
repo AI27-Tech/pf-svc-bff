@@ -1,5 +1,46 @@
 # CHANGELOG
 
+## 2026-11-20 13:00 — Solicitudes y su conversación en el bff (tracer.45, ADR 38, DEC-148)
+
+**Para quién:** los dos portales y `pf-svc-core`, cuyos adaptadores en proceso (`BFFOperacionEnProceso`, `BFFMensajeriaEnProceso`) deben implementar los métodos nuevos de los puertos: hasta entonces `core` no compila contra este `bff`. Firmas fijadas en `.scratch/ola-tracer-45-solicitudes/COSTURAS.md` §2 y §3. PR apilado sobre el de adopción de `tracer.45`.
+
+**Comportamiento:**
+- 12 operaciones de solicitudes (`/api/v1/solicitudes...`), espejo de `operacion`. El `bff` no replica la máquina de estados: reenvía y conserva el `codigo` del 409 (`transicion_no_permitida`, `fecha_pago_fuera_de_vigencia`, `fecha_hora_servicio_requerida`). No filtra por estado.
+- Guardas de audiencia y rol del contrato, con 403 antes de llamar a `operacion`: Cliente crea, rechaza la cotización y cancela; `cotizacion` y `administrador` cotizan, reprograman y confirman el pago; solo `administrador` revierte; `jefe_operativo` y `administrador` aprueban y rechazan; leen la solicitud el Cliente, `cotizacion`, `administrador` y `jefe_operativo`; el histórico, solo personal interno. Sin claims, 401.
+- `Solicitud.cliente` (id y nombre desde `catalogos`, un lote por respuesta) solo para audiencia Interno; el Cliente no lo recibe ni dispara lectura de `catalogos`.
+- Conversación de la solicitud (`/solicitudes/{id}/conversacion` y `/mensajes`): solo audiencia Cliente, vista recortada igual que la del viaje; cualquier rol interno recibe 403.
+- `GET /api/v1/bandeja/solicitudes`: `cotizacion` y `administrador`; el Cliente recibe 403 y los demás roles internos 404, como dice `bff.yaml`.
+- `crearViaje`: solo `jefe_operativo` y `administrador`, y además audiencia Interno (un rol de personal en un token de audiencia Cliente recibe 403); el Cliente y el resto reciben 403 (antes lo decidía solo `operacion`).
+- Si `catalogos` falla al componer `Solicitud.cliente`, la respuesta sale igual con `cliente.id` y sin `nombre` (el nombre es opcional) y el fallo se registra con `slog.Warn`. Antes era 5xx aun cuando `operacion` ya había confirmado la escritura, y el reintento daba 409/404. Aplica a las seis escrituras internas y a `listarSolicitudes` y `obtenerSolicitud`.
+- Hitos de la solicitud: `hitosPorEstadoSolicitud` y `EtiquetaSolicitud` (`internal/tracking`) **no los consume aún ningún handler**, solo las pruebas. Se dejan porque los nombres esperan validación de producto (DEC-148 #32, `TODO(producto)`); su uso depende de esa validación. "En preparación" (hito del viaje) se escribe ahora con acento, igual que "Cotización".
+
+**Cambios:**
+- `internal/agregacion/ports.go`: `OperacionPort` +12 y `MensajeriaPort` +4 métodos.
+- `internal/agregacion/solicitudes.go` (handlers) y rutas en `bff.go`.
+- `adapters/http/solicitudes.go`: adaptadores HTTP. `ListarMensajesSolicitud` y `EnviarMensajeSolicitud` resuelven la conversación por `obtenerConversacionDeSolicitud` y usan su id, bajo un solo presupuesto.
+- Pruebas con *fakes* de los puertos y servidores de prueba para los adaptadores; la tabla de rutas suma las 16.
+
+**Verificado:** `go build`, `go vet`, `gofmt`, `go test -race ./...`, `go build ./cmd/api` y `arch-test@v0.1.1` y `@v0.1.10`. Se comprobó que las pruebas de rol fallan si se abre una guarda y que las de `catalogos` caído fallan si se revierte el arreglo. Los adaptadores se prueban con los cinco códigos 409 (`transicion_no_permitida`, `fecha_pago_fuera_de_vigencia`, `fecha_hora_servicio_requerida`, `conversacion_solo_lectura`, `destino_no_es_cotizacion`).
+
+## 2026-11-20 12:00 — Adopta el contrato tracer.45: el viaje nace aprobado y el cliente solo cancela (ADR 38, DEC-148)
+
+**Para quién:** los dos portales (el seguimiento deja de traer `SOLICITADO` y gana `cancelacion_con_penalizacion`) y `pf-svc-core`. Este PR solo recompila y ajusta lo existente; las operaciones de solicitudes van en el PR siguiente.
+
+**Comportamiento:**
+- `transicionarViajeCliente`: el cliente solo lleva su viaje a `CANCELADO_POR_CLIENTE`; ya no rechaza la escolta asignada. `operacion` sigue siendo la única autoridad de la arista: el `bff` no agrega guarda (no había ninguna que nombrara los estados retirados) y reenvía.
+- `ViajeSeguimiento.cancelacion_con_penalizacion` se copia de `Viaje.cancelacion_con_penalizacion` de `operacion` (ausente se lee como `false`).
+- Hitos del viaje: sin `SOLICITADO` ni los rechazos; `CANCELADO_POR_CLIENTE` es "Servicio cancelado".
+- Hitos de la etapa de la solicitud (DEC-148 #32) en una sola tabla, `hitosPorEstadoSolicitud` (`EtiquetaSolicitud`). **Nombres sin validar** (`TODO(producto)`); "Cotización vencida" para `VENCIDA` es propuesta mía, DEC-148 no la nombra.
+- `Conversacion.tipo` y `Conversacion.sin_respuesta` se espejan en la vista interna de la conversación y de la bandeja.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` de `tracer.43` a `v0.1.0-tracer.45`. El código de producción solo rompió en `internal/tracking` (constantes de `estados` retiradas); el resto de roturas estaba en pruebas (`opclient.CANCELADO`, `SOLICITADO`, ...).
+- `internal/tracking/tracking.go`: mapa del viaje sin estados retirados, tabla de la solicitud y `Componer` con la marca de penalización.
+- `internal/agregacion/handlers.go`, `ports.go`, `bff.go`: comentarios y `aConversacion` con `Tipo` y `SinRespuesta`.
+- Pruebas: `tracking_test.go` (exhaustiva sobre `estados.EstadosViaje` y `EstadosSolicitud`, marca de penalización), `handlers_test.go`, `emergencia_test.go` (terminales ahora `CERRADO` y `CANCELADO_POR_CLIENTE`), `bandeja_test.go`.
+
+**Verificado:** `go build`, `go vet`, `gofmt`, `go test ./...` (también `-race`), `go build ./cmd/api` y `arch-test@v0.1.1` (el del CI) y `@v0.1.10`.
+
 ## 2026-11-19 — `obtenerMiAlcance`: el usuario lee su propio alcance (tracer.43, DEC-149 #24)
 
 **Para quién:** el panel interno, que distingue "sin clientes asignados" de "sin viajes" (B-04), y `pf-svc-core`, cuyo adaptador en proceso debe implementar el método nuevo del puerto.

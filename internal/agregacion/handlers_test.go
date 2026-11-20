@@ -155,7 +155,7 @@ func TestCerrarSesionSinClaimsEs401(t *testing.T) {
 func TestCrearViajeReenviaEntradaTraducidaADevuelveViaje(t *testing.T) {
 	creado := &opclient.Viaje{
 		Id:     uuid.MustParse("44444444-4444-4444-4444-444444444444"),
-		Estado: opclient.EstadoViaje(estados.EstadoSolicitado),
+		Estado: opclient.EstadoViaje(estados.EstadoAprobado),
 		Origen: "CDMX",
 	}
 	fakeOp := &fakeOperacion{viaje: creado}
@@ -171,7 +171,7 @@ func TestCrearViajeReenviaEntradaTraducidaADevuelveViaje(t *testing.T) {
 		},
 	}
 	rec := hacerPeticion(t, h.CrearViaje, http.MethodPost, "/api/v1/viajes", entrada,
-		&auth.Claims{SesionID: "s", Subject: "u"})
+		&auth.Claims{SesionID: "s", Subject: "u", Rol: "jefe_operativo", Audiencia: auth.AudienciaInterno})
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, se esperaba 201; cuerpo: %s", rec.Code, rec.Body.String())
@@ -202,7 +202,7 @@ func TestListarViajesReenviaCursorEstadoYDevuelvePagina(t *testing.T) {
 	fakeOp := &fakeOperacion{pagina: pagina}
 	h := NewHandlers(Deps{Operacion: fakeOp})
 
-	rec := hacerPeticion(t, h.ListarViajes, http.MethodGet, "/api/v1/viajes?cursor=c-42&estado=CANCELADO", nil,
+	rec := hacerPeticion(t, h.ListarViajes, http.MethodGet, "/api/v1/viajes?cursor=c-42&estado=CANCELADO_POR_CLIENTE", nil,
 		&auth.Claims{SesionID: "s", Subject: "u"})
 
 	if rec.Code != http.StatusOK {
@@ -216,8 +216,8 @@ func TestListarViajesReenviaCursorEstadoYDevuelvePagina(t *testing.T) {
 	if fakeOp.listarRecibio.Cursor == nil || *fakeOp.listarRecibio.Cursor != "c-42" {
 		t.Errorf("cursor reenviado = %v, se esperaba c-42", fakeOp.listarRecibio.Cursor)
 	}
-	if fakeOp.listarRecibio.Estado == nil || *fakeOp.listarRecibio.Estado != "CANCELADO" {
-		t.Errorf("estado reenviado = %v, se esperaba CANCELADO", fakeOp.listarRecibio.Estado)
+	if fakeOp.listarRecibio.Estado == nil || *fakeOp.listarRecibio.Estado != "CANCELADO_POR_CLIENTE" {
+		t.Errorf("estado reenviado = %v, se esperaba CANCELADO_POR_CLIENTE", fakeOp.listarRecibio.Estado)
 	}
 }
 
@@ -528,6 +528,7 @@ func (f *fakeIdentidad) ObtenerSesion(_ context.Context, _ idclient.Id) (*idclie
 // fakeOperacion registra las entradas que recibe y devuelve respuestas o un
 // error fijos. Implementa OperacionPort.
 type fakeOperacion struct {
+	sols    fakeSolicitudesOp // solicitudes (V2), ver solicitudes_test.go
 	viaje   *opclient.Viaje
 	pagina  *opclient.PaginaViajes
 	detalle *opclient.ViajeDetalle
@@ -808,7 +809,7 @@ func TestTransicionarViajeClienteAudienciaInternaEs403(t *testing.T) {
 
 	id := uuid.New()
 	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
-		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("ya no lo quiero")},
+		bffclient.TransicionEntrada{AEstado: "CANCELADO_POR_CLIENTE", Causa: ptr("ya no lo quiero")},
 		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaInterno})
 
 	if rec.Code != http.StatusForbidden {
@@ -826,7 +827,7 @@ func TestTransicionarViajeClienteSinClaimsEs401(t *testing.T) {
 
 	id := uuid.New()
 	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
-		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("motivo")}, nil)
+		bffclient.TransicionEntrada{AEstado: "CANCELADO_POR_CLIENTE", Causa: ptr("motivo")}, nil)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, se esperaba 401 sin claims; cuerpo: %s", rec.Code, rec.Body.String())
@@ -842,12 +843,14 @@ func TestTransicionarViajeClienteSinClaimsEs401(t *testing.T) {
 func TestTransicionarViajeClienteCliente200ReenviaYComponeVista(t *testing.T) {
 	id := uuid.MustParse("66666666-6666-6666-6666-666666666666")
 	fakeOp := &fakeOperacion{
-		transicionarViaje: &opclient.Viaje{Id: id, Estado: opclient.EstadoViaje(estados.EstadoCancelado), Origen: "CDMX"},
+		transicionarViaje: &opclient.Viaje{Id: id, Estado: opclient.EstadoViaje(estados.EstadoCanceladoPorCliente), Origen: "CDMX"},
 		detalle: &opclient.ViajeDetalle{
 			Viaje: opclient.Viaje{
 				Id:     id,
-				Estado: opclient.EstadoViaje(estados.EstadoCancelado),
+				Estado: opclient.EstadoViaje(estados.EstadoCanceladoPorCliente),
 				Origen: "CDMX",
+				// Marca que operacion deriva de nacio_de_solicitud (DEC-148 #14).
+				CancelacionConPenalizacion: ptr(true),
 			},
 			CondicionesActivas: []opclient.CondicionAbierta{},
 		},
@@ -855,7 +858,7 @@ func TestTransicionarViajeClienteCliente200ReenviaYComponeVista(t *testing.T) {
 	h := NewHandlers(Deps{Operacion: fakeOp})
 
 	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
-		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("ya no necesito el servicio")},
+		bffclient.TransicionEntrada{AEstado: "CANCELADO_POR_CLIENTE", Causa: ptr("ya no necesito el servicio")},
 		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaCliente})
 
 	if rec.Code != http.StatusOK {
@@ -865,8 +868,8 @@ func TestTransicionarViajeClienteCliente200ReenviaYComponeVista(t *testing.T) {
 	if !fakeOp.transicionarLlamado {
 		t.Fatal("debió reenviar la transición a operacion")
 	}
-	if string(fakeOp.transicionarRecibioBody.AEstado) != "CANCELADO" {
-		t.Errorf("a_estado reenviado = %q, se esperaba CANCELADO", fakeOp.transicionarRecibioBody.AEstado)
+	if string(fakeOp.transicionarRecibioBody.AEstado) != "CANCELADO_POR_CLIENTE" {
+		t.Errorf("a_estado reenviado = %q, se esperaba CANCELADO_POR_CLIENTE", fakeOp.transicionarRecibioBody.AEstado)
 	}
 	if fakeOp.transicionarRecibioBody.Causa == nil || *fakeOp.transicionarRecibioBody.Causa != "ya no necesito el servicio" {
 		t.Errorf("causa reenviada = %v, se esperaba el motivo", fakeOp.transicionarRecibioBody.Causa)
@@ -876,6 +879,9 @@ func TestTransicionarViajeClienteCliente200ReenviaYComponeVista(t *testing.T) {
 	decodificarCuerpo(t, rec, &got)
 	if got.Id != id {
 		t.Errorf("id en la vista = %v, se esperaba %v", got.Id, id)
+	}
+	if got.CancelacionConPenalizacion == nil || !*got.CancelacionConPenalizacion {
+		t.Errorf("cancelacion_con_penalizacion = %v, se esperaba true (marca de operacion)", got.CancelacionConPenalizacion)
 	}
 }
 
@@ -890,7 +896,7 @@ func TestTransicionarViajeClientePropagaErrorDeOperacion(t *testing.T) {
 
 	id := uuid.New()
 	rec := hacerPeticionPostConPathID(t, h.TransicionarViajeCliente, id.String(),
-		bffclient.TransicionEntrada{AEstado: "CANCELADO", Causa: ptr("motivo")},
+		bffclient.TransicionEntrada{AEstado: "CANCELADO_POR_CLIENTE", Causa: ptr("motivo")},
 		&auth.Claims{SesionID: "s", Subject: "u", Audiencia: auth.AudienciaCliente})
 
 	if rec.Code != http.StatusNotFound {

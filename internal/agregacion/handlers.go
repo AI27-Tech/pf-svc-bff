@@ -107,8 +107,14 @@ func (h *Handlers) CerrarSesion(w http.ResponseWriter, r *http.Request) {
 }
 
 // CrearViaje delega en operacion.crearViaje. El estado inicial lo fija el rol del
-// token en operacion (DEC-026); bff reenvia, no decide. Ruta protegida.
+// token en operacion (DEC-026); bff reenvia, no decide. Solo Operacion
+// (jefe_operativo y administrador): el cliente crea una solicitud y recibe 403
+// aqui (ADR 38). Exige además audiencia Interno, como autorizarSolicitud: un rol
+// de personal en un token de audiencia Cliente no basta. Ruta protegida.
 func (h *Handlers) CrearViaje(w http.ResponseWriter, r *http.Request) {
+	if !autorizarSolicitud(w, r, "crearViaje", false, rolesCreanViaje) {
+		return
+	}
 	var cuerpo bffclient.CrearViajeEntrada
 	if err := decodificar(r, &cuerpo); err != nil {
 		escribirError(w, err)
@@ -308,11 +314,11 @@ func (h *Handlers) SeguirViaje(w http.ResponseWriter, r *http.Request) {
 }
 
 // TransicionarViajeCliente delega en operacion.transicionarViaje la única acción
-// de escritura del cliente sobre el ciclo de vida del viaje: cancelar o rechazar
-// (E9-T7 / DEC-111). Solo audiencia Cliente: un actor interno recibe 403 antes de
+// de escritura del cliente sobre el ciclo de vida del viaje: cancelarlo
+// (E9-T7 / DEC-111; ya no puede rechazar la escolta, DEC-148 #14). Solo audiencia Cliente: un actor interno recibe 403 antes de
 // reenviar. operacion es la única autoridad de transición y aplica el aislamiento
 // por tenant (el cliente solo su viaje, DEC-112; viaje ajeno -> 404) y la facultad
-// (solo CANCELADO/RECHAZADO_POR_CLIENTE) más el motivo obligatorio (DEC-111). El
+// (solo CANCELADO_POR_CLIENTE) más el motivo obligatorio (DEC-111). El
 // bff solo filtra audiencia y reenvía; no replica el grafo. Devuelve la vista de
 // seguimiento del cliente (como seguirViaje), nunca el detalle interno (DEC-006):
 // operacion.transicionarViaje responde el Viaje plano, así que se recompone la
@@ -1137,6 +1143,8 @@ func aConversacion(c *msgclient.Conversacion) bffclient.Conversacion {
 		ReclamoActivo:   aReclamo(c.ReclamoActivo),
 		UltimaSecuencia: c.UltimaSecuencia,
 		VersionReclamo:  c.VersionReclamo,
+		Tipo:            c.Tipo,
+		SinRespuesta:    c.SinRespuesta,
 	}
 }
 
