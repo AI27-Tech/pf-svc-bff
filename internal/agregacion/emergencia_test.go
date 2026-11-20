@@ -300,11 +300,11 @@ func TestActivarEmergenciaClienteDevuelveVistaCliente(t *testing.T) {
 	}
 }
 
-// TestActivarEmergenciaViajeTerminalEs409: en los cuatro estados terminales las
+// TestActivarEmergenciaViajeTerminalEs409: en los dos estados terminales las
 // dos activaciones (cliente y monitoreo) responden 409 viaje_en_estado_terminal
 // sin llamar a mensajeria (DEC-135 #5). Un estado no terminal sí reenvía.
 func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
-	for _, estado := range []opclient.EstadoViaje{opclient.CERRADO, opclient.CANCELADO, opclient.RECHAZADOPORAI27, opclient.RECHAZADOPORCLIENTE} {
+	for _, estado := range []opclient.EstadoViaje{opclient.CERRADO, opclient.CANCELADOPORCLIENTE} {
 		for nombre, activar := range map[string]func(*Handlers) http.HandlerFunc{
 			"cliente": func(h *Handlers) http.HandlerFunc { return h.ActivarEmergenciaCliente },
 			"interno": func(h *Handlers) http.HandlerFunc { return h.ActivarEmergenciaInterno },
@@ -323,11 +323,11 @@ func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
 	}
 	fake := &fakeMensajeria{caso: &msgclient.CasoEmergencia{Id: uuid.MustParse(emerID), Estado: msgclient.EstadoEmergenciaAbierta}}
 	// Un viaje no terminal pero fuera de EN_TRANSITO tampoco admite la activación.
-	h := NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(opclient.SOLICITADO)})
+	h := NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(opclient.APROBADO)})
 	rec := peticionEmergencia(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x",
 		bffclient.ActivarEmergenciaInternoEntrada{ActivacionId: uuid.New()}, "Bearer t", viajeID, "")
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "viaje_no_admite_emergencia") || fake.bearerRecibido != "" {
-		t.Fatalf("SOLICITADO: status %d cuerpo %s; quiere 409 viaje_no_admite_emergencia sin llamar a mensajeria", rec.Code, rec.Body)
+		t.Fatalf("APROBADO: status %d cuerpo %s; quiere 409 viaje_no_admite_emergencia sin llamar a mensajeria", rec.Code, rec.Body)
 	}
 
 	// EN_EMBARQUE es previo al recorrido: tampoco admite la activación.

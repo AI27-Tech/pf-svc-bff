@@ -97,7 +97,7 @@ type OperacionPort interface {
 	// TransicionarViaje reenvia una transicion a operacion.transicionarViaje
 	// (E9-T7). operacion es la unica autoridad: valida la arista, aplica el
 	// aislamiento por tenant (cliente solo su viaje, DEC-112) y la facultad
-	// (cliente solo CANCELADO/RECHAZADO_POR_CLIENTE, DEC-111). Devuelve el Viaje
+	// (cliente solo CANCELADO_POR_CLIENTE, DEC-111 y DEC-148 #14). Devuelve el Viaje
 	// plano; el handler recompone la vista de seguimiento con ObtenerViaje.
 	TransicionarViaje(ctx context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error)
 
