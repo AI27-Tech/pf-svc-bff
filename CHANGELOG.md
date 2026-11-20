@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## 2026-11-20 12:00 — Adopta el contrato tracer.45: el viaje nace aprobado y el cliente solo cancela (ADR 38, DEC-148)
+
+**Para quién:** los dos portales (el seguimiento deja de traer `SOLICITADO` y gana `cancelacion_con_penalizacion`) y `pf-svc-core`. Este PR solo recompila y ajusta lo existente; las operaciones de solicitudes van en el PR siguiente.
+
+**Comportamiento:**
+- `transicionarViajeCliente`: el cliente solo lleva su viaje a `CANCELADO_POR_CLIENTE`; ya no rechaza la escolta asignada. `operacion` sigue siendo la única autoridad de la arista: el `bff` no agrega guarda (no había ninguna que nombrara los estados retirados) y reenvía.
+- `ViajeSeguimiento.cancelacion_con_penalizacion` se copia de `Viaje.cancelacion_con_penalizacion` de `operacion` (ausente se lee como `false`).
+- Hitos del viaje: sin `SOLICITADO` ni los rechazos; `CANCELADO_POR_CLIENTE` es "Servicio cancelado".
+- Hitos de la etapa de la solicitud (DEC-148 #32) en una sola tabla, `hitosPorEstadoSolicitud` (`EtiquetaSolicitud`). **Nombres sin validar** (`TODO(producto)`); "Cotización vencida" para `VENCIDA` es propuesta mía, DEC-148 no la nombra.
+- `Conversacion.tipo` y `Conversacion.sin_respuesta` se espejan en la vista interna de la conversación y de la bandeja.
+
+**Cambios:**
+- `go.mod`/`go.sum`: `api-client-go` de `tracer.43` a `v0.1.0-tracer.45`. El código de producción solo rompió en `internal/tracking` (constantes de `estados` retiradas); el resto de roturas estaba en pruebas (`opclient.CANCELADO`, `SOLICITADO`, ...).
+- `internal/tracking/tracking.go`: mapa del viaje sin estados retirados, tabla de la solicitud y `Componer` con la marca de penalización.
+- `internal/agregacion/handlers.go`, `ports.go`, `bff.go`: comentarios y `aConversacion` con `Tipo` y `SinRespuesta`.
+- Pruebas: `tracking_test.go` (exhaustiva sobre `estados.EstadosViaje` y `EstadosSolicitud`, marca de penalización), `handlers_test.go`, `emergencia_test.go` (terminales ahora `CERRADO` y `CANCELADO_POR_CLIENTE`), `bandeja_test.go`.
+
+**Verificado:** `go build`, `go vet`, `gofmt`, `go test ./...` (también `-race`), `go build ./cmd/api` y `arch-test@v0.1.1` (el del CI) y `@v0.1.10`.
+
 ## 2026-11-19 — `obtenerMiAlcance`: el usuario lee su propio alcance (tracer.43, DEC-149 #24)
 
 **Para quién:** el panel interno, que distingue "sin clientes asignados" de "sin viajes" (B-04), y `pf-svc-core`, cuyo adaptador en proceso debe implementar el método nuevo del puerto.

@@ -165,7 +165,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.CrearViaje)))
 	mux.Handle("GET /api/v1/viajes", protegido(http.HandlerFunc(m.handlers.ListarViajes)))
 	mux.Handle("GET /api/v1/viajes/{id}", protegido(http.HandlerFunc(m.handlers.SeguirViaje)))
-	// Cancelar o rechazar el viaje desde el portal cliente (E9-T7, DEC-111). El
+	// Cancelar el viaje desde el portal cliente (E9-T7, DEC-111; DEC-148 #14). El
 	// handler exige audiencia Cliente y reenvia a operacion, que es la unica
 	// autoridad de transicion (aislamiento por tenant + facultad + motivo).
 	mux.Handle("POST /api/v1/viajes/{id}/transiciones-cliente", protegido(http.HandlerFunc(m.handlers.TransicionarViajeCliente)))
