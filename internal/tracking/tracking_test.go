@@ -15,19 +15,22 @@ import (
 // prueba falla, forzando a decidir su hito en vez de filtrar el token tecnico.
 func TestEtiquetaPorEstado(t *testing.T) {
 	casos := map[estados.EstadoViaje]string{
-		estados.EstadoSolicitado:          "Solicitud recibida",
 		estados.EstadoAprobado:            "Servicio confirmado",
 		estados.EstadoAsignado:            "Servicio confirmado",
-		estados.EstadoAptoParaSalida:      "En preparacion",
-		estados.EstadoEnEmbarque:          "En preparacion",
-		estados.EstadoPatrullaEnCamino:    "En preparacion",
+		estados.EstadoAptoParaSalida:      "En preparación",
+		estados.EstadoEnEmbarque:          "En preparación",
+		estados.EstadoPatrullaEnCamino:    "En preparación",
 		estados.EstadoEnTransito:          "En camino",
 		estados.EstadoEnDestino:           "En camino",
 		estados.EstadoEnDescarga:          "En camino",
 		estados.EstadoCerrado:             "Servicio cerrado",
-		estados.EstadoCancelado:           "Servicio cancelado",
-		estados.EstadoRechazadoPorAi27:    "Servicio no procede",
-		estados.EstadoRechazadoPorCliente: "Servicio no procede",
+		estados.EstadoCanceladoPorCliente: "Servicio cancelado",
+	}
+	// Exhaustiva sobre el enum real: un estado nuevo sin hito rompe la prueba.
+	for _, e := range estados.EstadosViaje {
+		if _, ok := casos[e]; !ok {
+			t.Errorf("estado %q del enum sin caso en la prueba", e)
+		}
 	}
 	for estado, esperado := range casos {
 		etiqueta, ok := Etiqueta(estado)
@@ -38,6 +41,47 @@ func TestEtiquetaPorEstado(t *testing.T) {
 		if etiqueta != esperado {
 			t.Errorf("estado %q: hito = %q, se esperaba %q", estado, etiqueta, esperado)
 		}
+	}
+}
+
+// TestEtiquetaSolicitud: los hitos de la etapa previa (DEC-148 #32) cubren todo
+// el enum de la solicitud y siguen la secuencia propuesta.
+func TestEtiquetaSolicitud(t *testing.T) {
+	for _, e := range estados.EstadosSolicitud {
+		if _, ok := EtiquetaSolicitud(e); !ok {
+			t.Errorf("estado de solicitud %q sin hito", e)
+		}
+	}
+	secuencia := []struct {
+		e estados.EstadoSolicitud
+		h string
+	}{
+		{estados.EstadoSolicitudSolicitado, "Solicitud recibida"},
+		{estados.EstadoSolicitudCotizado, "Cotización enviada"},
+		{estados.EstadoSolicitudPagado, "Pago confirmado"},
+		{estados.EstadoSolicitudAprobado, "Servicio confirmado"},
+	}
+	for _, c := range secuencia {
+		if h, _ := EtiquetaSolicitud(c.e); h != c.h {
+			t.Errorf("%q: hito = %q, se esperaba %q", c.e, h, c.h)
+		}
+	}
+	if _, ok := EtiquetaSolicitud("INVENTADO"); ok {
+		t.Error("un estado desconocido no debe tener hito")
+	}
+}
+
+// TestComponerCancelacionConPenalizacion: la marca de operacion pasa tal cual a
+// la vista; ausente sigue ausente (el contrato la lee como false).
+func TestComponerCancelacionConPenalizacion(t *testing.T) {
+	d := viajeDetalle(opclient.EstadoViaje(estados.EstadoCanceladoPorCliente), nil)
+	if Componer(d).CancelacionConPenalizacion != nil {
+		t.Error("sin marca en operacion, la vista no la inventa")
+	}
+	si := true
+	d.Viaje.CancelacionConPenalizacion = &si
+	if got := Componer(d).CancelacionConPenalizacion; got == nil || !*got {
+		t.Errorf("marca = %v, se esperaba true", got)
 	}
 }
 
