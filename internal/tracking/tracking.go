@@ -37,19 +37,46 @@ var ahora = func() time.Time { return time.Now().UTC() }
 // Es un dato (mapa), no una cadena de if/switch, para que la prueba por estado
 // recorra el enum completo y falle si aparece un estado nuevo sin hito.
 var hitosPorEstado = map[estados.EstadoViaje]string{
-	estados.EstadoSolicitado:          "Solicitud recibida",
 	estados.EstadoAprobado:            "Servicio confirmado",
 	estados.EstadoAsignado:            "Servicio confirmado",
-	estados.EstadoAptoParaSalida:      "En preparacion",
-	estados.EstadoEnEmbarque:          "En preparacion",
-	estados.EstadoPatrullaEnCamino:    "En preparacion",
+	estados.EstadoAptoParaSalida:      "En preparación",
+	estados.EstadoEnEmbarque:          "En preparación",
+	estados.EstadoPatrullaEnCamino:    "En preparación",
 	estados.EstadoEnTransito:          "En camino",
 	estados.EstadoEnDestino:           "En camino",
 	estados.EstadoEnDescarga:          "En camino",
 	estados.EstadoCerrado:             "Servicio cerrado",
-	estados.EstadoCancelado:           "Servicio cancelado",
-	estados.EstadoRechazadoPorAi27:    "Servicio no procede",
-	estados.EstadoRechazadoPorCliente: "Servicio no procede",
+	estados.EstadoCanceladoPorCliente: "Servicio cancelado",
+}
+
+// hitosPorEstadoSolicitud es la etapa previa a la aprobacion (DEC-148 #32):
+// Solicitud recibida -> Cotizacion enviada -> Pago confirmado -> Servicio
+// confirmado, y de ahi el viaje sigue con hitosPorEstado. Unico lugar de estos
+// nombres; el viaje nace en APROBADO (ADR 38), asi que SOLICITADO ya no es un
+// estado del viaje. Ningun otro codigo debe repetir estas cadenas.
+//
+// Ningún handler consume todavía esta tabla ni EtiquetaSolicitud (solo las
+// pruebas); se conservan hasta que producto valide los nombres.
+//
+// TODO(producto): nombres de hitos pendientes de validación (DEC-148 #32). Los
+// de VENCIDA, rechazo y cancelacion no vienen en DEC-148 #32: son los del viaje
+// (rechazo, cancelacion) o un nombre propuesto (VENCIDA).
+var hitosPorEstadoSolicitud = map[estados.EstadoSolicitud]string{
+	estados.EstadoSolicitudSolicitado:          "Solicitud recibida",
+	estados.EstadoSolicitudCotizado:            "Cotización enviada",
+	estados.EstadoSolicitudPagado:              "Pago confirmado",
+	estados.EstadoSolicitudAprobado:            "Servicio confirmado",
+	estados.EstadoSolicitudVencida:             "Cotización vencida",
+	estados.EstadoSolicitudRechazadoPorAi27:    "Servicio no procede",
+	estados.EstadoSolicitudRechazadoPorCliente: "Servicio no procede",
+	estados.EstadoSolicitudCanceladoPorCliente: "Servicio cancelado",
+}
+
+// EtiquetaSolicitud traduce el estado de la solicitud a su hito. Misma postura
+// que Etiqueta: "" y false si no esta mapeado, nunca el token tecnico.
+func EtiquetaSolicitud(e estados.EstadoSolicitud) (string, bool) {
+	etiqueta, ok := hitosPorEstadoSolicitud[e]
+	return etiqueta, ok
 }
 
 // Etiqueta traduce un estado tecnico al hito de negocio que ve el cliente.
@@ -96,6 +123,8 @@ func Componer(d opclient.ViajeDetalle) bffclient.ViajeSeguimiento {
 		Id:          v.Id,
 		Hito:        hito,
 		Incidencias: incidenciasCuradas(activas),
+		// Marca del aviso del 50% (DEC-148 #14, #27); ausente se lee como false.
+		CancelacionConPenalizacion: v.CancelacionConPenalizacion,
 	}
 
 	if v.EtaEstimado != nil {

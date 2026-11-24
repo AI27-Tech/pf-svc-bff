@@ -97,7 +97,7 @@ type OperacionPort interface {
 	// TransicionarViaje reenvia una transicion a operacion.transicionarViaje
 	// (E9-T7). operacion es la unica autoridad: valida la arista, aplica el
 	// aislamiento por tenant (cliente solo su viaje, DEC-112) y la facultad
-	// (cliente solo CANCELADO/RECHAZADO_POR_CLIENTE, DEC-111). Devuelve el Viaje
+	// (cliente solo CANCELADO_POR_CLIENTE, DEC-111 y DEC-148 #14). Devuelve el Viaje
 	// plano; el handler recompone la vista de seguimiento con ObtenerViaje.
 	TransicionarViaje(ctx context.Context, id opclient.Id, body opclient.TransicionEntrada) (*opclient.Viaje, error)
 
@@ -113,6 +113,25 @@ type OperacionPort interface {
 	// RegistrarEntradaBitacora reenvia una entrada append-only; el autor sale del
 	// token aguas abajo.
 	RegistrarEntradaBitacora(ctx context.Context, id opclient.Id, body opclient.EntradaBitacoraEntrada) (*opclient.EntradaBitacora, error)
+
+	// Solicitudes (V2, ADR 38 y 39, DEC-148). Espejo de operacion.ConsultasAPI:
+	// mismas firmas y tipos generados, para que core cablee el adaptador en
+	// proceso sin traducir. operacion es la única dueña de la máquina de estados
+	// y de las reglas (códigos transicion_no_permitida,
+	// fecha_pago_fuera_de_vigencia, fecha_hora_servicio_requerida): el bff
+	// reenvía y propaga el error. El rol del llamante sale del token aguas abajo.
+	CrearSolicitud(ctx context.Context, body opclient.CrearSolicitudEntrada) (*opclient.Solicitud, error)
+	ListarSolicitudes(ctx context.Context, params opclient.ListarSolicitudesParams) (*opclient.PaginaSolicitudes, error)
+	ObtenerSolicitud(ctx context.Context, id opclient.Id) (*opclient.Solicitud, error)
+	ListarHistoricoSolicitud(ctx context.Context, id opclient.Id) (*opclient.HistoricoSolicitud, error)
+	CotizarSolicitud(ctx context.Context, id opclient.Id, body opclient.CotizacionEntrada) (*opclient.Solicitud, error)
+	ReprogramarSolicitud(ctx context.Context, id opclient.Id, body opclient.ReprogramacionEntrada) (*opclient.Solicitud, error)
+	RechazarCotizacion(ctx context.Context, id opclient.Id, body opclient.AccionClienteEntrada) (*opclient.Solicitud, error)
+	CancelarSolicitud(ctx context.Context, id opclient.Id, body opclient.AccionClienteEntrada) (*opclient.Solicitud, error)
+	ConfirmarPago(ctx context.Context, id opclient.Id, body opclient.PagoEntrada) (*opclient.Solicitud, error)
+	RevertirPago(ctx context.Context, id opclient.Id, body opclient.MotivoEntrada) (*opclient.Solicitud, error)
+	AprobarSolicitud(ctx context.Context, id opclient.Id) (*opclient.Solicitud, error)
+	RechazarSolicitud(ctx context.Context, id opclient.Id, body opclient.MotivoEntrada) (*opclient.Solicitud, error)
 	// AbrirIncidencia y ResolverIncidencia reenvian la condicion INCIDENCIA; el rol
 	// del token decide la facultad en operacion.
 	AbrirIncidencia(ctx context.Context, id opclient.Id, body opclient.IncidenciaEntrada) (*opclient.Incidencia, error)
@@ -231,6 +250,19 @@ type MensajeriaPort interface {
 	// EnviarMensaje publica un mensaje del cliente (idempotente por
 	// client_message_id). Devuelve el Mensaje; 200 (reintento) o 201 (nuevo).
 	EnviarMensaje(ctx context.Context, bearer string, viajeID msgclient.Id, body msgclient.EnviarMensajeEntrada) (*msgclient.Mensaje, error)
+
+	// --- Conversación de la solicitud (V2, DEC-148) ------------------------
+	// Es otra conversación (tipo=solicitud) entre el cliente y el pool de
+	// `cotizacion`. La identifica el id de la solicitud, que el viaje hereda. Las
+	// tres primeras sirven al portal cliente (el handler recorta como en el
+	// viaje); la cuarta es la bandeja de cotizacion. El reclamo, la
+	// transferencia, los recibos y "atendida" reutilizan las operaciones por id
+	// de conversación de abajo. Mismas firmas que mensajeria.ConversacionesAPI
+	// (con bearer, como el resto de este puerto).
+	ObtenerConversacionSolicitud(ctx context.Context, bearer string, solicitudID msgclient.Id) (*msgclient.Conversacion, error)
+	ListarMensajesSolicitud(ctx context.Context, bearer string, solicitudID msgclient.Id, params msgclient.ListarMensajesParams) (*msgclient.PaginaMensajes, error)
+	EnviarMensajeSolicitud(ctx context.Context, bearer string, solicitudID msgclient.Id, body msgclient.EnviarMensajeEntrada) (*msgclient.Mensaje, error)
+	ListarTrabajoBandejaSolicitudes(ctx context.Context, bearer string, params msgclient.ListarTrabajoMiBandejaSolicitudesParams) (*msgclient.TrabajoBandeja, error)
 
 	// --- Bandeja y conversación interna del pool (E8-T15) ----------------
 	// Superficie interna del pool de Ejecutivos (reclamo, transferencia,

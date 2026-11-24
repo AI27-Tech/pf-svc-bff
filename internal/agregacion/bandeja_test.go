@@ -217,6 +217,8 @@ func TestObtenerConversacionInternaNoRecorta(t *testing.T) {
 		BandejaId:      &bandeja,
 		VersionReclamo: 4,
 		ReclamoActivo:  &msgclient.Reclamo{Id: uuid.MustParse(reclamoID), Version: 4},
+		Tipo:           ptr("solicitud"),
+		SinRespuesta:   ptr(true),
 	}}
 	h := NewHandlers(Deps{Mensajeria: fake})
 
@@ -239,6 +241,9 @@ func TestObtenerConversacionInternaNoRecorta(t *testing.T) {
 	}
 	if out.ReclamoActivo == nil || out.ReclamoActivo.Version != 4 {
 		t.Errorf("reclamo_activo debe conservarse: %+v", out.ReclamoActivo)
+	}
+	if out.Tipo == nil || *out.Tipo != "solicitud" || out.SinRespuesta == nil || !*out.SinRespuesta {
+		t.Errorf("tipo y sin_respuesta deben espejarse: tipo=%v sin_respuesta=%v", out.Tipo, out.SinRespuesta)
 	}
 	if fake.bearerRecibido != "Bearer tok-conv" {
 		t.Errorf("no se propagó el Bearer: %q", fake.bearerRecibido)
