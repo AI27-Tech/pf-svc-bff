@@ -274,9 +274,7 @@ func TestUnidadesClienteEs403(t *testing.T) {
 	}
 }
 
-// TestRecursosGuardaDeRol: catalogos no revisa rol (DEC-142 #6). Leen
-// jefe_operativo y administrador; escribe solo administrador; monitorista y
-// cliente reciben 403 sin que catalogos se toque.
+// TestRecursosGuardaDeRol verifica los permisos de vehículos y custodios en el BFF (DEC-152).
 func TestRecursosGuardaDeRol(t *testing.T) {
 	veh, cus := uuid.New(), uuid.New()
 	handlers := map[string]struct {
@@ -294,7 +292,7 @@ func TestRecursosGuardaDeRol(t *testing.T) {
 		"actualizarCustodio": {http.MethodPatch, `{"estado":"inactivo"}`, cus.String(), func(h *Handlers) http.HandlerFunc { return h.ActualizarCustodio }, http.StatusOK},
 	}
 	lectura := map[string]bool{"listarVehiculos": true, "obtenerVehiculo": true, "listarCustodios": true, "obtenerCustodio": true}
-	for _, rol := range []string{"administrador", "jefe_operativo", "monitorista", "supervisor", "cliente"} {
+	for _, rol := range []string{"administrador", "coordinador", "jefe_operativo", "monitorista", "supervisor", "cotizacion", "cliente"} {
 		for op, c := range handlers {
 			t.Run(rol+"/"+op, func(t *testing.T) {
 				cat := &fakeCatalogos{
@@ -305,7 +303,7 @@ func TestRecursosGuardaDeRol(t *testing.T) {
 					paginaVehiculos: &catclient.PaginaVehiculos{Items: []catclient.Vehiculo{}},
 					paginaCustodios: &catclient.PaginaCustodios{Items: []catclient.Custodio{}},
 				}
-				puede := rol == "administrador" || (rol == "jefe_operativo" && lectura[op])
+				puede := rol == "administrador" || rol == "coordinador" || (rol == "jefe_operativo" && lectura[op])
 				want := http.StatusForbidden
 				if puede {
 					want = c.ok

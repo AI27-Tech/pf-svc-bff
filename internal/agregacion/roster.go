@@ -23,7 +23,7 @@ import (
 // administrador, DEC-142 #3) y las reglas del roster; el bff solo exige
 // audiencia Interna, como listarUnidades, y responde la Unidad legible.
 // Vehículos y custodios: reenvío a catalogos, que NO revisa rol, así que la
-// guarda la aplica el bff (DEC-142 #6). La escolta del viaje (obtenerAsignacion)
+// guarda la aplica el bff (DEC-152 #3 y #12). La escolta del viaje (obtenerAsignacion)
 // la lee cualquier rol interno; el Cliente recibe 404.
 
 // rolesLecturaRecursos leen vehículos y custodios: el Jefe Operativo los
@@ -31,11 +31,13 @@ import (
 var rolesLecturaRecursos = map[roles.Rol]bool{
 	roles.RolJefeOperativo: true,
 	roles.RolAdministrador: true,
+	roles.RolCoordinador:   true,
 }
 
 // rolesEscrituraRecursos dan de alta y editan vehículos y custodios.
 var rolesEscrituraRecursos = map[roles.Rol]bool{
 	roles.RolAdministrador: true,
+	roles.RolCoordinador:   true,
 }
 
 // decodificarEstricto lee el cuerpo rechazando propiedades fuera del contrato

@@ -252,12 +252,16 @@ func (h *Handlers) componerResumenInterno(ctx context.Context, bearer string, vi
 }
 
 // ListarClientes delega en catalogos.listarClientes para poblar el selector de
-// cliente al crear un viaje por Operación (E8-T11). Reenvía el cursor y propaga
+// cliente al crear un viaje por Operación (E8-T11) y resolver nombres en la
+// bandeja (DEC-118). Reenvía el cursor y propaga
 // el Bearer; catalogos devuelve SOLO clientes activos (DEC-101 #1). El filtro de
 // alcance del jefe_operativo (DEC-026 #3) todavía NO se aplica aquí (pendiente,
 // DEC-101 #2). La respuesta se traduce al tipo de bff (espejo de catalogos,
-// paquetes generados distintos). Ruta protegida.
+// paquetes generados distintos). Solo audiencia Interna.
 func (h *Handlers) ListarClientes(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "listarClientes") {
+		return
+	}
 	var params catclient.ListarClientesParams
 	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
 		c := catclient.Cursor(cursor)

@@ -94,8 +94,11 @@ func (h *Handlers) ListarEmergenciasViaje(w http.ResponseWriter, r *http.Request
 	escribirJSON(w, http.StatusOK, out)
 }
 
-// ActivarEmergenciaInterno: el monitoreo activa desde el panel (DEC-045 #9).
+// ActivarEmergenciaInterno exige audiencia Interna; mensajeria autoriza el rol (DEC-152 #1).
 func (h *Handlers) ActivarEmergenciaInterno(w http.ResponseWriter, r *http.Request) {
+	if !h.soloInterno(w, r, "activarEmergenciaInterno") {
+		return
+	}
 	id, err := uuidDe(r.PathValue("id"))
 	if err != nil {
 		escribirError(w, platformerrors.NewValidacion("bff: activarEmergenciaInterno: id invalido"))
