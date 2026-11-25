@@ -305,6 +305,7 @@ func TestActivarEmergenciaClienteDevuelveVistaCliente(t *testing.T) {
 // dos activaciones (cliente y monitoreo) responden 409 viaje_en_estado_terminal
 // sin llamar a mensajeria (DEC-135 #5). Un estado no terminal sí reenvía.
 func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
+	body := `{"activacion_id":"` + uuid.NewString() + `"}`
 	for _, estado := range []opclient.EstadoViaje{opclient.CERRADO, opclient.CANCELADOPORCLIENTE} {
 		for nombre, activar := range map[string]func(*Handlers) http.HandlerFunc{
 			"cliente": func(h *Handlers) http.HandlerFunc { return h.ActivarEmergenciaCliente },
@@ -312,8 +313,11 @@ func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
 		} {
 			fake := &fakeMensajeria{caso: &msgclient.CasoEmergencia{Id: uuid.MustParse(emerID)}}
 			h := NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(estado)})
-			rec := peticionEmergencia(t, activar(h), http.MethodPost, "/x",
-				map[string]any{"activacion_id": uuid.New()}, "Bearer t", viajeID, "")
+			rol := "cliente"
+			if nombre == "interno" {
+				rol = "monitorista"
+			}
+			rec := peticionRol(t, activar(h), http.MethodPost, "/x", viajeID, body, rol)
 			if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "viaje_en_estado_terminal") {
 				t.Errorf("%s en %s: status %d cuerpo %s; quiere 409 viaje_en_estado_terminal", nombre, estado, rec.Code, rec.Body)
 			}
@@ -325,16 +329,14 @@ func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
 	fake := &fakeMensajeria{caso: &msgclient.CasoEmergencia{Id: uuid.MustParse(emerID), Estado: msgclient.EstadoEmergenciaAbierta}}
 	// Un viaje no terminal pero fuera de EN_TRANSITO tampoco admite la activación.
 	h := NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(opclient.APROBADO)})
-	rec := peticionEmergencia(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x",
-		bffclient.ActivarEmergenciaInternoEntrada{ActivacionId: uuid.New()}, "Bearer t", viajeID, "")
+	rec := peticionRol(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x", viajeID, body, "monitorista")
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "viaje_no_admite_emergencia") || fake.bearerRecibido != "" {
 		t.Fatalf("APROBADO: status %d cuerpo %s; quiere 409 viaje_no_admite_emergencia sin llamar a mensajeria", rec.Code, rec.Body)
 	}
 
 	// EN_EMBARQUE es previo al recorrido: tampoco admite la activación.
 	h = NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(opclient.ENEMBARQUE)})
-	rec = peticionEmergencia(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x",
-		bffclient.ActivarEmergenciaInternoEntrada{ActivacionId: uuid.New()}, "Bearer t", viajeID, "")
+	rec = peticionRol(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x", viajeID, body, "monitorista")
 	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "viaje_no_admite_emergencia") || fake.bearerRecibido != "" {
 		t.Fatalf("EN_EMBARQUE: status %d cuerpo %s; quiere 409 viaje_no_admite_emergencia sin llamar a mensajeria", rec.Code, rec.Body)
 	}
@@ -342,13 +344,34 @@ func TestActivarEmergenciaViajeTerminalEs409(t *testing.T) {
 	// El recorrido (EN_TRANSITO, EN_DESTINO y EN_DESCARGA) sí admite la activación.
 	for _, estado := range []opclient.EstadoViaje{opclient.ENTRANSITO, opclient.ENDESTINO, opclient.ENDESCARGA} {
 		h = NewHandlers(Deps{Mensajeria: fake, Operacion: viajeEn(estado)})
-		rec = peticionEmergencia(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x",
-			bffclient.ActivarEmergenciaInternoEntrada{ActivacionId: uuid.New()}, "Bearer t", viajeID, "")
+		rec = peticionRol(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x", viajeID, body, "monitorista")
 		var out bffclient.EmergenciaViaje
 		decodificarCuerpo(t, rec, &out)
 		if rec.Code != http.StatusCreated || out.Id != uuid.MustParse(emerID) || out.Estado != "abierta" {
 			t.Errorf("%s: status %d fila %+v; quiere 201 con la fila mínima", estado, rec.Code, out)
 		}
+	}
+}
+
+func TestActivarEmergenciaInternoAdmiteAdministradorNoCliente(t *testing.T) {
+	for _, c := range []struct {
+		rol  string
+		want int
+	}{{"administrador", http.StatusCreated}, {"cliente", http.StatusForbidden}} {
+		t.Run(c.rol, func(t *testing.T) {
+			msg := &fakeMensajeria{caso: &msgclient.CasoEmergencia{Id: uuid.MustParse(emerID), Estado: msgclient.EstadoEmergenciaAbierta}}
+			h := NewHandlers(Deps{Mensajeria: msg, Operacion: viajeEn(opclient.ENTRANSITO)})
+			rec := peticionRol(t, h.ActivarEmergenciaInterno, http.MethodPost, "/x", viajeID, `{"activacion_id":"`+uuid.NewString()+`"}`, c.rol)
+			if rec.Code != c.want {
+				t.Fatalf("status = %d, se esperaba %d; cuerpo: %s", rec.Code, c.want, rec.Body)
+			}
+			if c.want == http.StatusForbidden && msg.bearerRecibido != "" {
+				t.Error("mensajeria no debe recibir una activación interna de audiencia Cliente")
+			}
+			if c.want == http.StatusCreated && msg.bearerRecibido != "Bearer tok-roster" {
+				t.Errorf("Bearer reenviado = %q", msg.bearerRecibido)
+			}
+		})
 	}
 }
 

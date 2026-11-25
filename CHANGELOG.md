@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 2026-11-25 13:00 — Afina los permisos del panel interno (DEC-152)
+
+**Para quién:** el Coordinador puede listar, consultar, crear y editar vehículos y custodios. El Jefe Operativo conserva solo lectura; el Supervisor no adquiere acceso.
+
+**Cambios:** `internal/agregacion/roster.go` habilita al Coordinador en las dos guardas. `handlers.go` exige audiencia interna para `listarClientes` sin romper la resolución de nombres de la bandeja (DEC-118). `emergencias.go` exige esa misma audiencia para activar desde el panel y deja la autorización por rol a `mensajeria`. Las pruebas de catálogo, roster y emergencia cubren los permisos y rechazos en los handlers. No cambia el pin de contratos.
+
+**Archivos modificados:** `internal/agregacion/{roster.go,roster_test.go,handlers.go,catalogos_test.go,emergencias.go,emergencia_test.go}` y `CHANGELOG.md`.
+
 ## 2026-11-20 13:00 — Solicitudes y su conversación en el bff (tracer.45, ADR 38, DEC-148)
 
 **Para quién:** los dos portales y `pf-svc-core`, cuyos adaptadores en proceso (`BFFOperacionEnProceso`, `BFFMensajeriaEnProceso`) deben implementar los métodos nuevos de los puertos: hasta entonces `core` no compila contra este `bff`. Firmas fijadas en `.scratch/ola-tracer-45-solicitudes/COSTURAS.md` §2 y §3. PR apilado sobre el de adopción de `tracer.45`.
