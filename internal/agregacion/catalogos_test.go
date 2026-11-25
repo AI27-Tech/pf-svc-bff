@@ -19,9 +19,10 @@ type fakeCatalogos struct {
 	err            error
 
 	// Lecturas por id del detalle de Reacción (E8-T18).
-	clientes  map[catclient.Id]*catclient.Cliente
-	vehiculos map[catclient.Id]*catclient.Vehiculo
-	custodios map[catclient.Id]*catclient.Custodio
+	clientes       map[catclient.Id]*catclient.Cliente
+	paginaClientes *catclient.PaginaClientes
+	vehiculos      map[catclient.Id]*catclient.Vehiculo
+	custodios      map[catclient.Id]*catclient.Custodio
 	// errVehiculo, si no es nil, lo devuelve ObtenerVehiculo (catalogos caído).
 	errVehiculo error
 	// lotesVehiculos registra cada lectura por lote de vehículos (ids).
@@ -71,11 +72,44 @@ func (f *fakeCatalogos) ListarClientes(ctx context.Context, bearer string, param
 	if params.Ids != nil {
 		return f.clientesPorLote(*params.Ids)
 	}
-	return nil, f.err
+	f.bearerRecibido = bearer
+	return f.paginaClientes, f.err
 }
 func (f *fakeCatalogos) ListarTiposServicio(ctx context.Context, bearer string, params catclient.ListarValoresCatalogoParams) (*catclient.PaginaValoresCatalogo, error) {
 	f.bearerRecibido = bearer
 	return f.tiposServicio, f.err
+}
+
+func TestListarClientesSoloAudienciaInterna(t *testing.T) {
+	for _, c := range []struct {
+		rol  string
+		want int
+	}{
+		{"administrador", http.StatusOK},
+		{"jefe_operativo", http.StatusOK},
+		{"ejecutivo", http.StatusOK}, // La bandeja resuelve nombres con este listado (DEC-118).
+		{"cliente", http.StatusForbidden},
+	} {
+		t.Run(c.rol, func(t *testing.T) {
+			cat := &fakeCatalogos{paginaClientes: &catclient.PaginaClientes{
+				Items: []catclient.Cliente{{Id: uuid.New(), Nombre: "Cliente de prueba"}},
+			}}
+			rec := peticionRol(t, NewHandlers(Deps{Catalogos: cat}).ListarClientes, http.MethodGet, "/api/v1/clientes", "", "", c.rol)
+			if rec.Code != c.want {
+				t.Fatalf("status = %d, se esperaba %d; cuerpo: %s", rec.Code, c.want, rec.Body)
+			}
+			if c.want == http.StatusForbidden && cat.bearerRecibido != "" {
+				t.Fatal("catalogos no debe recibir la solicitud de audiencia Cliente")
+			}
+			if c.want == http.StatusOK {
+				var out bffclient.PaginaClientes
+				decodificarCuerpo(t, rec, &out)
+				if len(out.Items) != 1 || out.Items[0].Nombre != "Cliente de prueba" {
+					t.Errorf("clientes = %+v, se esperaba Cliente de prueba", out.Items)
+				}
+			}
+		})
+	}
 }
 
 // TestListarTiposServicioFiltraActivosYRecorta: el handler descarta los valores
